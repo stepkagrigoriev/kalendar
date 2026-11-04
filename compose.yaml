@@ -5,3 +5,15 @@ services:
       dockerfile: src/Kalendar.WebApi/Dockerfile
     ports:
       - "5080:80"
+  worker:
+    build:
+      context: .
+      dockerfile: src/Kalendar.Worker/Dockerfile
+    ports:
+      - "5081:80"
+  notification-service:
+    build:
+      context: .
+      dockerfile: src/Kalendar.NotificationService/Dockerfile
+    ports:
+      - "5082:80"

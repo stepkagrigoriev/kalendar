@@ -7,6 +7,7 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddSerilog(configuration => configuration
     .Enrich.FromLogContext()
+    .Enrich.WithProperty("ServiceName", "Kalendar.WebApi")
     .WriteTo.Console(new RenderedCompactJsonFormatter()));
 
 var app = builder.Build();
