@@ -1,0 +1,7 @@
+services:
+  webapi:
+    build:
+      context: .
+      dockerfile: src/Kalendar.WebApi/Dockerfile
+    ports:
+      - "5080:80"
