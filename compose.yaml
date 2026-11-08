@@ -8,19 +8,31 @@ services:
       MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USERNAME}
       MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
       MONGO_INITDB_DATABASE: kalendar
-      KALENDAR_WEBAPI_MONGO_USER: ${KALENDAR_WEBAPI_MONGO_USER}
-      KALENDAR_WEBAPI_MONGO_PASSWORD: ${KALENDAR_WEBAPI_MONGO_PASSWORD}
-      KALENDAR_WORKER_MONGO_USER: ${KALENDAR_WORKER_MONGO_USER}
-      KALENDAR_WORKER_MONGO_PASSWORD: ${KALENDAR_WORKER_MONGO_PASSWORD}
     volumes:
       - mongodb-data:/data/db
-      - ./infrastructure/mongodb/init.js:/docker-entrypoint-initdb.d/init.js:ro
     healthcheck:
       test: ["CMD-SHELL", "mongosh --quiet --username \"$${MONGO_INITDB_ROOT_USERNAME}\" --password \"$${MONGO_INITDB_ROOT_PASSWORD}\" --authenticationDatabase admin --eval \"db.adminCommand({ ping: 1 })\" >/dev/null"]
       interval: 5s
       timeout: 5s
       retries: 12
       start_period: 10s
+
+  database-setup:
+    build:
+      context: .
+      dockerfile: tools/Kalendar.DatabaseSetup/Dockerfile
+    restart: on-failure
+    environment:
+      MONGO_HOST: mongodb:27017
+      MONGO_ROOT_USERNAME: ${MONGO_ROOT_USERNAME:?Задайте MONGO_ROOT_USERNAME}
+      MONGO_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:?Задайте MONGO_ROOT_PASSWORD}
+      KALENDAR_WEBAPI_MONGO_USER: ${KALENDAR_WEBAPI_MONGO_USER:?Задайте KALENDAR_WEBAPI_MONGO_USER}
+      KALENDAR_WEBAPI_MONGO_PASSWORD: ${KALENDAR_WEBAPI_MONGO_PASSWORD:?Задайте KALENDAR_WEBAPI_MONGO_PASSWORD}
+      KALENDAR_WORKER_MONGO_USER: ${KALENDAR_WORKER_MONGO_USER:?Задайте KALENDAR_WORKER_MONGO_USER}
+      KALENDAR_WORKER_MONGO_PASSWORD: ${KALENDAR_WORKER_MONGO_PASSWORD:?Задайте KALENDAR_WORKER_MONGO_PASSWORD}
+    depends_on:
+      mongodb:
+        condition: service_healthy
 
   webapi:
     build:
@@ -31,9 +43,13 @@ services:
     environment:
       Mongo__ConnectionString: mongodb://${KALENDAR_WEBAPI_MONGO_USER}:${KALENDAR_WEBAPI_MONGO_PASSWORD}@mongodb:27017/kalendar?authSource=kalendar
       Mongo__Database: kalendar
+      Jwt__SigningKey: ${Jwt__SigningKey:?Задайте Jwt__SigningKey}
+      Jwt__Issuer: ${Jwt__Issuer:?Задайте Jwt__Issuer}
+      Jwt__Audience: ${Jwt__Audience:?Задайте Jwt__Audience}
+      Jwt__AccessTokenLifetimeMinutes: ${Jwt__AccessTokenLifetimeMinutes:?Задайте Jwt__AccessTokenLifetimeMinutes}
     depends_on:
-      mongodb:
-        condition: service_healthy
+      database-setup:
+        condition: service_completed_successfully
   worker:
     build:
       context: .
@@ -44,8 +60,8 @@ services:
       Mongo__ConnectionString: mongodb://${KALENDAR_WORKER_MONGO_USER}:${KALENDAR_WORKER_MONGO_PASSWORD}@mongodb:27017/kalendar?authSource=kalendar
       Mongo__Database: kalendar
     depends_on:
-      mongodb:
-        condition: service_healthy
+      database-setup:
+        condition: service_completed_successfully
   notification-service:
     build:
       context: .

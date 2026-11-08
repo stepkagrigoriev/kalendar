@@ -1,7 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
-using DotNet.Testcontainers.Configurations;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Configuration;
 using MongoDB.Bson;
 using MongoDB.Driver;
@@ -27,10 +27,23 @@ public sealed class MongoIntegrationTests : IAsyncLifetime
         .WithEnvironment("KALENDAR_WEBAPI_MONGO_PASSWORD", WebApiPassword)
         .WithEnvironment("KALENDAR_WORKER_MONGO_USER", WorkerUsername)
         .WithEnvironment("KALENDAR_WORKER_MONGO_PASSWORD", WorkerPassword)
-        .WithBindMount(InitScriptPath(), "/docker-entrypoint-initdb.d/init.js", AccessMode.ReadOnly)
         .Build();
 
-    public Task InitializeAsync() => container.StartAsync();
+    public async Task InitializeAsync()
+    {
+        await container.StartAsync();
+        var variables = new Dictionary<string, string>
+        {
+            ["MONGO_HOST"] = $"{container.Hostname}:{container.GetMappedPublicPort(27017)}",
+            ["MONGO_ROOT_USERNAME"] = RootUsername,
+            ["MONGO_ROOT_PASSWORD"] = RootPassword,
+            ["KALENDAR_WEBAPI_MONGO_USER"] = WebApiUsername,
+            ["KALENDAR_WEBAPI_MONGO_PASSWORD"] = WebApiPassword,
+            ["KALENDAR_WORKER_MONGO_USER"] = WorkerUsername,
+            ["KALENDAR_WORKER_MONGO_PASSWORD"] = WorkerPassword
+        };
+        await DatabaseSetup.RunAsync(readVariable: name => variables.GetValueOrDefault(name));
+    }
 
     public Task DisposeAsync() => container.DisposeAsync().AsTask();
 
@@ -71,20 +84,14 @@ public sealed class MongoIntegrationTests : IAsyncLifetime
     }
 
     WebApplicationFactory<Program> CreateFactory() =>
-        new WebApplicationFactory<Program>().WithWebHostBuilder(builder => builder.ConfigureAppConfiguration((_, configuration) =>
-            configuration.AddInMemoryCollection(new Dictionary<string, string?>
-            {
-                ["Mongo:ConnectionString"] = ApplicationConnectionString(),
-                ["Mongo:Database"] = DatabaseName
-            })));
+        new WebApplicationFactory<Program>().WithWebHostBuilder(builder => builder
+            .UseSetting("Mongo:ConnectionString", ApplicationConnectionString())
+            .UseSetting("Mongo:Database", DatabaseName));
 
     IMongoDatabase Database() => new MongoClient(ApplicationConnectionString()).GetDatabase(DatabaseName);
 
     string ApplicationConnectionString() =>
         $"mongodb://{WorkerUsername}:{WorkerPassword}@{container.Hostname}:{container.GetMappedPublicPort(27017)}/{DatabaseName}?authSource={DatabaseName}";
-
-    static string InitScriptPath() =>
-        Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../infrastructure/mongodb/init.js"));
 
     static async Task AssertIndexes(IMongoCollection<BsonDocument> collection)
     {
