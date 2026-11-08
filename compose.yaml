@@ -1,19 +1,57 @@
 services:
+  mongodb:
+    image: mongo:8.0.32
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USERNAME}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
+      MONGO_INITDB_DATABASE: kalendar
+      KALENDAR_WEBAPI_MONGO_USER: ${KALENDAR_WEBAPI_MONGO_USER}
+      KALENDAR_WEBAPI_MONGO_PASSWORD: ${KALENDAR_WEBAPI_MONGO_PASSWORD}
+      KALENDAR_WORKER_MONGO_USER: ${KALENDAR_WORKER_MONGO_USER}
+      KALENDAR_WORKER_MONGO_PASSWORD: ${KALENDAR_WORKER_MONGO_PASSWORD}
+    volumes:
+      - mongodb-data:/data/db
+      - ./infrastructure/mongodb/init.js:/docker-entrypoint-initdb.d/init.js:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet --username \"$${MONGO_INITDB_ROOT_USERNAME}\" --password \"$${MONGO_INITDB_ROOT_PASSWORD}\" --authenticationDatabase admin --eval \"db.adminCommand({ ping: 1 })\" >/dev/null"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
   webapi:
     build:
       context: .
       dockerfile: src/Kalendar.WebApi/Dockerfile
     ports:
       - "5080:80"
+    environment:
+      Mongo__ConnectionString: mongodb://${KALENDAR_WEBAPI_MONGO_USER}:${KALENDAR_WEBAPI_MONGO_PASSWORD}@mongodb:27017/kalendar?authSource=kalendar
+      Mongo__Database: kalendar
+    depends_on:
+      mongodb:
+        condition: service_healthy
   worker:
     build:
       context: .
       dockerfile: src/Kalendar.Worker/Dockerfile
     ports:
       - "5081:80"
+    environment:
+      Mongo__ConnectionString: mongodb://${KALENDAR_WORKER_MONGO_USER}:${KALENDAR_WORKER_MONGO_PASSWORD}@mongodb:27017/kalendar?authSource=kalendar
+      Mongo__Database: kalendar
+    depends_on:
+      mongodb:
+        condition: service_healthy
   notification-service:
     build:
       context: .
       dockerfile: src/Kalendar.NotificationService/Dockerfile
     ports:
       - "5082:80"
+
+volumes:
+  mongodb-data:
