@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using Kalendar.WebApi;
+using MongoDB.Driver;
 using Serilog;
 using Serilog.Context;
 using Serilog.Formatting.Compact;
@@ -9,8 +11,11 @@ builder.Services.AddSerilog(configuration => configuration
     .Enrich.FromLogContext()
     .Enrich.WithProperty("ServiceName", "Kalendar.WebApi")
     .WriteTo.Console(new RenderedCompactJsonFormatter()));
+builder.Services.AddMongoDatabase(builder.Configuration);
 
 var app = builder.Build();
+
+await MongoInfrastructure.InitializeAsync(app.Services.GetRequiredService<IMongoDatabase>(), app.Logger);
 
 app.Use(async (httpContext, next) =>
 {
@@ -22,6 +27,6 @@ app.Use(async (httpContext, next) =>
 app.UseSerilogRequestLogging();
 
 app.MapGet("/health", () => TypedResults.Ok(new { status = "Healthy" }));
-app.MapGet("/ready", () => TypedResults.Ok(new { status = "Healthy" }));
+app.MapGet("/ready", MongoInfrastructure.CheckReadinessAsync);
 
 app.Run();

@@ -3,4 +3,6 @@
   <Project Path="src/Kalendar.Worker/Kalendar.Worker.csproj" />
   <Project Path="src/Kalendar.NotificationService/Kalendar.NotificationService.csproj" />
   <Project Path="tests/Kalendar.NotificationService.Tests/Kalendar.NotificationService.Tests.csproj" />
+  <Project Path="tests/Kalendar.WebApi.Tests/Kalendar.WebApi.Tests.csproj" />
+  <Project Path="tests/Kalendar.Worker.Tests/Kalendar.Worker.Tests.csproj" />
 </Solution>

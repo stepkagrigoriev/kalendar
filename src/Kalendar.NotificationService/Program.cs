@@ -1,4 +1,8 @@
 using System.Diagnostics;
+using Microsoft.AspNetCore.SignalR;
+using Serilog;
+using Serilog.Context;
+using Serilog.Formatting.Compact;
 
 var builder = WebApplication.CreateBuilder(args);
 
