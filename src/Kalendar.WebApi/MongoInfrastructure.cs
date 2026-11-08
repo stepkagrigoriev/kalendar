@@ -50,8 +50,8 @@ static class MongoInfrastructure
         }
         catch (Exception exception)
         {
-            logger.LogCritical(exception, "MongoDB initialization failed");
-            throw;
+            logger.LogCritical("Ошибка инициализации MongoDB: {ErrorType}", exception.GetType().Name);
+            throw new InvalidOperationException("Не удалось создать коллекции и индексы MongoDB. Проверьте доступность, права и совместимость индексов.");
         }
     }
 
