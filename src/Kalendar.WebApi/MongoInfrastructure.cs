@@ -1,5 +1,7 @@
 using MongoDB.Bson;
 using MongoDB.Driver;
+using MongoDB.Driver.Core.Extensions.DiagnosticSources;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 
 namespace Kalendar.WebApi;
 
@@ -30,6 +32,8 @@ static class MongoInfrastructure
 
         settings.ServerSelectionTimeout = OperationTimeout;
         settings.ConnectTimeout = OperationTimeout;
+        settings.ClusterConfigurator = cluster => cluster.Subscribe(new DiagnosticsActivityEventSubscriber(
+            new InstrumentationOptions { CaptureCommandText = false }));
         services.AddSingleton<IMongoClient>(new MongoClient(settings));
         services.AddSingleton<IMongoDatabase>(provider => provider.GetRequiredService<IMongoClient>().GetDatabase(databaseName));
         return services;
@@ -44,7 +48,10 @@ static class MongoInfrastructure
         {
             var existing = await (await database.ListCollectionNamesAsync(cancellationToken: timeout.Token)).ToListAsync(timeout.Token);
             foreach (var collection in Collections.Except(existing, StringComparer.Ordinal))
-                await database.CreateCollectionAsync(collection, cancellationToken: timeout.Token);
+            {
+                try { await database.CreateCollectionAsync(collection, cancellationToken: timeout.Token); }
+                catch (MongoCommandException exception) when (exception.Code == 48) { }
+            }
 
             await CreateIndexesAsync(database, timeout.Token);
         }
@@ -55,7 +62,7 @@ static class MongoInfrastructure
         }
     }
 
-    public static async Task<IResult> CheckReadinessAsync(IMongoDatabase database, CancellationToken cancellationToken)
+    public static async Task<IResult> CheckReadinessAsync(IMongoDatabase database, HealthCheckService health, CancellationToken cancellationToken)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(OperationTimeout);
@@ -63,6 +70,8 @@ static class MongoInfrastructure
         try
         {
             await database.RunCommandAsync<BsonDocument>(new BsonDocument("ping", 1), cancellationToken: timeout.Token);
+            if ((await health.CheckHealthAsync(timeout.Token)).Status != HealthStatus.Healthy)
+                return Results.Json(new { status = "Unhealthy" }, statusCode: StatusCodes.Status503ServiceUnavailable);
             return Results.Ok(new { status = "Healthy" });
         }
         catch (Exception)

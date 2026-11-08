@@ -34,8 +34,20 @@ public sealed class TaskDocument
 
     public object Response() => new
     {
-        id = Id.ToString(), userId = UserId.ToString(), listId = ListId?.ToString(), Title, Description,
-        DueAt, Priority, Status, Tags, Reminder, Recurrence, CreatedAt, UpdatedAt, CompletedAt
+        id = Id.ToString(),
+        userId = UserId.ToString(),
+        listId = ListId?.ToString(),
+        Title,
+        Description,
+        DueAt,
+        Priority,
+        Status,
+        Tags,
+        Reminder,
+        Recurrence,
+        CreatedAt,
+        UpdatedAt,
+        CompletedAt
     };
 }
 

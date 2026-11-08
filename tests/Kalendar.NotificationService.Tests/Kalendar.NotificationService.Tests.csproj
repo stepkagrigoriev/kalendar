@@ -4,6 +4,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="Testcontainers.RabbitMq" Version="4.16.0" />
+    <PackageReference Include="MassTransit.TestFramework" Version="8.5.12" />
     <PackageReference Include="coverlet.collector" Version="10.1.0" />
     <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.14" />
     <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.14" />

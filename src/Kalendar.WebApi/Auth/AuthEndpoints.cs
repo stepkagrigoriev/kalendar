@@ -75,8 +75,12 @@ static class AuthEndpoints
         var now = clock.GetUtcNow().UtcDateTime;
         var user = new UserDocument
         {
-            Id = ObjectId.GenerateNewId(), Email = request.Email.Trim(), NormalizedEmail = request.Email.Trim().ToUpperInvariant(),
-            CreatedAt = now, UpdatedAt = now, IsActive = true
+            Id = ObjectId.GenerateNewId(),
+            Email = request.Email.Trim(),
+            NormalizedEmail = request.Email.Trim().ToUpperInvariant(),
+            CreatedAt = now,
+            UpdatedAt = now,
+            IsActive = true
         };
         user.PasswordHash = hasher.HashPassword(user, request.Password);
         try

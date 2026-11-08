@@ -1,4 +1,7 @@
 <Solution>
+  <Project Path="tests/Kalendar.EndToEnd.Tests/Kalendar.EndToEnd.Tests.csproj" />
+  <Project Path="tools/Kalendar.Quality/Kalendar.Quality.csproj" />
+  <Project Path="src/Kalendar.Contracts/Kalendar.Contracts.csproj" />
   <Project Path="tools/Kalendar.DatabaseSetup/Kalendar.DatabaseSetup.csproj" />
   <Project Path="src/Kalendar.WebApi/Kalendar.WebApi.csproj" />
   <Project Path="src/Kalendar.Worker/Kalendar.Worker.csproj" />

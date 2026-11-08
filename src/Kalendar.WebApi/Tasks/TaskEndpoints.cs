@@ -21,15 +21,16 @@ static class TaskEndpoints
             return task is null ? Results.NotFound() : Results.Ok(task.Response());
         });
         tasks.MapPatch("/{id}", PatchAsync);
-        tasks.MapPost("/{id}/complete", (string id, ClaimsPrincipal principal, IMongoDatabase db, TimeProvider clock, CancellationToken ct) =>
-            ChangeStatusAsync(id, true, principal, db, clock, ct));
-        tasks.MapPost("/{id}/reopen", (string id, ClaimsPrincipal principal, IMongoDatabase db, TimeProvider clock, CancellationToken ct) =>
-            ChangeStatusAsync(id, false, principal, db, clock, ct));
-        tasks.MapDelete("/{id}", async (string id, ClaimsPrincipal principal, IMongoDatabase db, CancellationToken ct) =>
+        tasks.MapPost("/{id}/complete", (string id, ClaimsPrincipal principal, IMongoDatabase db, TimeProvider clock, TaskEvents events, CancellationToken ct) =>
+            ChangeStatusAsync(id, true, principal, db, clock, events, ct));
+        tasks.MapPost("/{id}/reopen", (string id, ClaimsPrincipal principal, IMongoDatabase db, TimeProvider clock, TaskEvents events, CancellationToken ct) =>
+            ChangeStatusAsync(id, false, principal, db, clock, events, ct));
+        tasks.MapDelete("/{id}", async (string id, ClaimsPrincipal principal, IMongoDatabase db, TaskEvents events, CancellationToken ct) =>
         {
             if (!ObjectId.TryParse(id, out var taskId)) return Results.NotFound();
             var userId = UserId(principal);
             var result = await Tasks(db).DeleteOneAsync(x => x.Id == taskId && x.UserId == userId, ct);
+            if (result.DeletedCount > 0) await events.DeletedAsync(id, userId.ToString(), ct);
             return result.DeletedCount == 0 ? Results.NotFound() : Results.NoContent();
         });
 
@@ -61,7 +62,7 @@ static class TaskEndpoints
     static IMongoCollection<TaskListDocument> Lists(IMongoDatabase db) => db.GetCollection<TaskListDocument>("taskLists");
     static object ListResponse(TaskListDocument list) => new { id = list.Id.ToString(), list.Name, list.Color, list.CreatedAt, list.UpdatedAt };
 
-    static async Task<IResult> CreateAsync(JsonElement body, ClaimsPrincipal principal, IMongoDatabase db, TimeProvider clock, CancellationToken ct)
+    static async Task<IResult> CreateAsync(JsonElement body, ClaimsPrincipal principal, IMongoDatabase db, TimeProvider clock, TaskEvents events, CancellationToken ct)
     {
         var now = clock.GetUtcNow().UtcDateTime;
         var task = new TaskDocument { Id = ObjectId.GenerateNewId(), UserId = UserId(principal), CreatedAt = now, UpdatedAt = now };
@@ -69,6 +70,7 @@ static class TaskEndpoints
         await ValidateListAsync(task, db, errors, ct);
         if (errors.Count > 0) return TypedResults.ValidationProblem(errors);
         await Tasks(db).InsertOneAsync(task, cancellationToken: ct);
+        await events.ChangedAsync(task, ct);
         return Results.Created($"/api/tasks/{task.Id}", task.Response());
     }
 
@@ -78,12 +80,13 @@ static class TaskEndpoints
             errors["listId"] = ["Список не найден."];
     }
 
-    static async Task<IResult> PatchAsync(string id, JsonElement body, ClaimsPrincipal principal, IMongoDatabase db, TimeProvider clock, CancellationToken ct)
+    static async Task<IResult> PatchAsync(string id, JsonElement body, ClaimsPrincipal principal, IMongoDatabase db, TimeProvider clock, TaskEvents events, CancellationToken ct)
     {
         if (!ObjectId.TryParse(id, out var taskId)) return Results.NotFound();
         var userId = UserId(principal);
         var task = await Tasks(db).Find(x => x.Id == taskId && x.UserId == userId).FirstOrDefaultAsync(ct);
         if (task is null) return Results.NotFound();
+        var originalReminderAt = task.Reminder?.At;
         var errors = TaskInput.Apply(body, task);
         await ValidateListAsync(task, db, errors, ct);
         if (errors.Count > 0) return TypedResults.ValidationProblem(errors);
@@ -100,17 +103,20 @@ static class TaskEndpoints
                 case "listId": updates.Add(update.Set(x => x.ListId, task.ListId)); break;
                 case "tags": updates.Add(update.Set(x => x.Tags, task.Tags)); break;
                 case "recurrence": updates.Add(update.Set(x => x.Recurrence, task.Recurrence)); break;
-                case "reminder": updates.Add(update.Set(x => x.Reminder, task.Reminder)); break;
+                case "reminder":
+                    if (task.Reminder?.At != originalReminderAt) updates.Add(update.Set(x => x.Reminder, task.Reminder));
+                    break;
             }
         }
         if (updates.Count == 0) return Results.Ok(task.Response());
         updates.Add(update.Set(x => x.UpdatedAt, clock.GetUtcNow().UtcDateTime));
         var result = await Tasks(db).FindOneAndUpdateAsync(x => x.Id == taskId && x.UserId == userId, update.Combine(updates),
             new FindOneAndUpdateOptions<TaskDocument> { ReturnDocument = ReturnDocument.After }, ct);
+        if (result is not null) await events.ChangedAsync(result, ct);
         return result is null ? Results.NotFound() : Results.Ok(result.Response());
     }
 
-    static async Task<IResult> ChangeStatusAsync(string id, bool completed, ClaimsPrincipal principal, IMongoDatabase db, TimeProvider clock, CancellationToken ct)
+    static async Task<IResult> ChangeStatusAsync(string id, bool completed, ClaimsPrincipal principal, IMongoDatabase db, TimeProvider clock, TaskEvents events, CancellationToken ct)
     {
         if (!ObjectId.TryParse(id, out var taskId)) return Results.NotFound();
         var userId = UserId(principal);
@@ -119,6 +125,7 @@ static class TaskEndpoints
         var task = await Tasks(db).FindOneAndUpdateAsync(x => x.Id == taskId && x.UserId == userId && x.Status != status,
             Builders<TaskDocument>.Update.Set(x => x.Status, status).Set(x => x.CompletedAt, completed ? now : (DateTime?)null).Set(x => x.UpdatedAt, now),
             new FindOneAndUpdateOptions<TaskDocument> { ReturnDocument = ReturnDocument.After }, ct);
+        if (task is not null) await events.ChangedAsync(task, ct);
         task ??= await Tasks(db).Find(x => x.Id == taskId && x.UserId == userId).FirstOrDefaultAsync(ct);
         return task is null ? Results.NotFound() : Results.Ok(task.Response());
     }

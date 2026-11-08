@@ -29,7 +29,9 @@ public class AuthValidationTests
     {
         var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
         {
-            ["Jwt:SigningKey"] = key, ["Jwt:Issuer"] = issuer, ["Jwt:Audience"] = audience,
+            ["Jwt:SigningKey"] = key,
+            ["Jwt:Issuer"] = issuer,
+            ["Jwt:Audience"] = audience,
             ["Jwt:AccessTokenLifetimeMinutes"] = minutes
         }).Build();
         if (valid)

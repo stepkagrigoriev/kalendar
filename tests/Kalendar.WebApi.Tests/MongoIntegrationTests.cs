@@ -6,6 +6,7 @@ using Microsoft.Extensions.Configuration;
 using MongoDB.Bson;
 using MongoDB.Driver;
 using Testcontainers.MongoDb;
+using Testcontainers.RabbitMq;
 using Xunit;
 
 namespace Kalendar.WebApi.Tests;
@@ -19,6 +20,8 @@ public sealed class MongoIntegrationTests : IAsyncLifetime
     const string WorkerUsername = "worker";
     const string WorkerPassword = "worker-test-password";
     const string DatabaseName = "kalendar";
+    readonly RabbitMqContainer rabbit = new RabbitMqBuilder("rabbitmq:4.1.4-management")
+        .WithUsername("kalendar-tests").WithPassword("rabbit-test-password").Build();
 
     readonly MongoDbContainer container = new MongoDbBuilder("mongo:8.0.32")
         .WithUsername(RootUsername)
@@ -32,6 +35,7 @@ public sealed class MongoIntegrationTests : IAsyncLifetime
     public async Task InitializeAsync()
     {
         await container.StartAsync();
+        await rabbit.StartAsync();
         var variables = new Dictionary<string, string>
         {
             ["MONGO_HOST"] = $"{container.Hostname}:{container.GetMappedPublicPort(27017)}",
@@ -46,7 +50,56 @@ public sealed class MongoIntegrationTests : IAsyncLifetime
         await DatabaseSetup.RunAsync(readVariable: name => variables.GetValueOrDefault(name));
     }
 
-    public Task DisposeAsync() => container.DisposeAsync().AsTask();
+    public async Task DisposeAsync()
+    {
+        await rabbit.DisposeAsync();
+        await container.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task InternalCommandsRequireServiceKeyAndAreIdempotent()
+    {
+        await using var factory = CreateFactory();
+        var client = factory.CreateClient();
+        var credentials = new { email = "internal@example.com", password = "test-password-123" };
+        await client.PostAsJsonAsync("/api/auth/register", credentials);
+        var token = (await (await client.PostAsJsonAsync("/api/auth/login", credentials)).Content.ReadFromJsonAsync<TokenResponse>())!;
+        client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token.AccessToken);
+        var creation = await client.PostAsJsonAsync("/api/tasks", new
+        {
+            title = "Повторение",
+            dueAt = "2026-11-08T10:00:00Z",
+            reminder = new { at = "2026-11-08T09:00:00Z" },
+            recurrence = new { frequency = "daily", interval = 1 }
+        });
+        var task = await creation.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>();
+        var id = task.GetProperty("id").GetString()!;
+        var owner = task.GetProperty("userId").GetString()!;
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync($"/internal/tasks/{id}?userId={owner}")).StatusCode);
+        client.DefaultRequestHeaders.Authorization = null;
+        client.DefaultRequestHeaders.Add("X-Internal-Api-Key", "test-internal-key-with-at-least-32-bytes");
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/tasks")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync($"/internal/tasks/{id}?userId={owner}")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync($"/internal/tasks/{id}?userId={ObjectId.GenerateNewId()}")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/internal/tasks/scheduled?limit=1")).StatusCode);
+        var confirmation = new { userId = owner, reminderAt = "2026-11-08T09:00:00Z" };
+        Assert.Equal(HttpStatusCode.OK, (await client.PostAsJsonAsync($"/internal/tasks/{id}/reminder-sent", confirmation)).StatusCode);
+        var documents = Database().GetCollection<BsonDocument>("tasks");
+        var first = await documents.Find(new BsonDocument("_id", ObjectId.Parse(id))).SingleAsync();
+        Assert.Equal(HttpStatusCode.OK, (await client.PostAsJsonAsync($"/internal/tasks/{id}/reminder-sent", confirmation)).StatusCode);
+        var repeated = await documents.Find(new BsonDocument("_id", ObjectId.Parse(id))).SingleAsync();
+        Assert.Equal(first["reminder"]["sentAt"], repeated["reminder"]["sentAt"]);
+        var instance = new { userId = owner, dueAt = "2026-11-09T10:00:00Z", idempotencyKey = $"recurrence:{id}:2026-11-08T10:00:00.0000000Z" };
+        var responses = await Task.WhenAll(Enumerable.Range(0, 4).Select(_ => client.PostAsJsonAsync($"/internal/tasks/{id}/recurrence-instances", instance)));
+        var ids = new List<string>();
+        foreach (var response in responses)
+        {
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            ids.Add((await response.Content.ReadFromJsonAsync<IdResponse>())!.Id);
+        }
+        Assert.Single(ids.Distinct());
+        Assert.Equal(2, await documents.CountDocumentsAsync(new BsonDocument("userId", ObjectId.Parse(owner))));
+    }
 
     [Fact]
     public async Task TasksListsFiltersAndOwnershipWorkTogether()
@@ -73,8 +126,12 @@ public sealed class MongoIntegrationTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.BadRequest, (await second.PostAsJsonAsync("/api/tasks", new { title = "Чужой список", listId })).StatusCode);
         var creation = await first.PostAsJsonAsync("/api/tasks", new
         {
-            title = " Работа .*+?()[] ", description = "Описание", listId, priority = "high",
-            tags = new[] { " Учёба ", "учёба" }, dueAt = "2026-11-08T10:00:00Z",
+            title = " Работа .*+?()[] ",
+            description = "Описание",
+            listId,
+            priority = "high",
+            tags = new[] { " Учёба ", "учёба" },
+            dueAt = "2026-11-08T10:00:00Z",
             reminder = new { at = "2026-11-08T09:00:00Z" }
         });
         Assert.Equal(HttpStatusCode.Created, creation.StatusCode);
@@ -131,6 +188,18 @@ public sealed class MongoIntegrationTests : IAsyncLifetime
         Assert.Equal(id, me!.Id);
         client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", "invalid");
         Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/users/me")).StatusCode);
+        var hasher = new Microsoft.AspNetCore.Identity.PasswordHasher<Kalendar.WebApi.Auth.UserDocument>(
+            Microsoft.Extensions.Options.Options.Create(new Microsoft.AspNetCore.Identity.PasswordHasherOptions { IterationCount = 10 }));
+        var oldHash = hasher.HashPassword(new Kalendar.WebApi.Auth.UserDocument(), credentials.password);
+        await Database().GetCollection<BsonDocument>("users").UpdateOneAsync(new BsonDocument("_id", ObjectId.Parse(id)),
+            new BsonDocument("$set", new BsonDocument("passwordHash", oldHash)));
+        var rehashed = await client.PostAsJsonAsync("/api/auth/login", credentials);
+        Assert.Equal(HttpStatusCode.OK, rehashed.StatusCode);
+        var updated = await Database().GetCollection<BsonDocument>("users").Find(new BsonDocument("_id", ObjectId.Parse(id))).SingleAsync();
+        Assert.NotEqual(oldHash, updated["passwordHash"].AsString);
+        await Database().GetCollection<BsonDocument>("users").UpdateOneAsync(new BsonDocument("_id", ObjectId.Parse(id)),
+            new BsonDocument("$set", new BsonDocument("isActive", false)));
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.PostAsJsonAsync("/api/auth/login", credentials)).StatusCode);
     }
 
     [Fact]
@@ -162,6 +231,10 @@ public sealed class MongoIntegrationTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.OK, health.StatusCode);
         Assert.Equal(HttpStatusCode.OK, ready.StatusCode);
         Assert.Equal("Healthy", (await ready.Content.ReadFromJsonAsync<StatusResponse>())?.Status);
+        var metrics = await client.GetStringAsync("/metrics");
+        Assert.Contains("http_requests_received_total", metrics);
+        Assert.Contains("tasks_pending_total", metrics);
+        Assert.Contains("rabbitmq_messages_total", metrics);
 
         var database = Database();
         var collections = await (await database.ListCollectionNamesAsync()).ToListAsync();
@@ -179,6 +252,15 @@ public sealed class MongoIntegrationTests : IAsyncLifetime
 
         await Assert.ThrowsAnyAsync<MongoException>(() =>
             database.GetCollection<BsonDocument>("backgroundJobs").InsertOneAsync(new BsonDocument("test", true)));
+        await Assert.ThrowsAnyAsync<MongoException>(() =>
+            database.GetCollection<BsonDocument>("backgroundJobs").Find(FilterDefinition<BsonDocument>.Empty).FirstOrDefaultAsync());
+        await container.StopAsync();
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, (await client.GetAsync("/ready")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/health")).StatusCode);
+        await container.StartAsync();
+        using var recovered = new CancellationTokenSource(TimeSpan.FromSeconds(25));
+        while ((await client.GetAsync("/ready", recovered.Token)).StatusCode != HttpStatusCode.OK)
+            await Task.Delay(100, recovered.Token);
     }
 
     [Fact]
@@ -206,7 +288,12 @@ public sealed class MongoIntegrationTests : IAsyncLifetime
     WebApplicationFactory<Program> CreateFactory() =>
         new WebApplicationFactory<Program>().WithWebHostBuilder(builder => builder
             .UseSetting("Mongo:ConnectionString", ApplicationConnectionString())
+            .UseSetting("RabbitMq:Host", rabbit.Hostname)
+            .UseSetting("RabbitMq:Port", rabbit.GetMappedPublicPort(5672).ToString())
+            .UseSetting("RabbitMq:Username", "kalendar-tests")
+            .UseSetting("RabbitMq:Password", "rabbit-test-password")
             .UseSetting("Mongo:Database", DatabaseName)
+            .UseSetting("InternalApi:Key", "test-internal-key-with-at-least-32-bytes")
             .UseSetting("Jwt:SigningKey", "test-signing-key-with-at-least-32-bytes")
             .UseSetting("Jwt:Issuer", "kalendar-tests")
             .UseSetting("Jwt:Audience", "kalendar-tests")

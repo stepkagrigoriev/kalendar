@@ -8,17 +8,31 @@ using Serilog;
 using Serilog.Context;
 using Serilog.Formatting.Compact;
 
+if (args is ["--health"])
+{
+    using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(4) };
+    try { Environment.ExitCode = (await client.GetAsync("http://127.0.0.1:80/ready")).IsSuccessStatusCode ? 0 : 1; }
+    catch { Environment.ExitCode = 1; }
+    return;
+}
+
 var builder = WebApplication.CreateBuilder(args);
 ConventionRegistry.Register("camelCase", new ConventionPack { new CamelCaseElementNameConvention() }, type => type.Namespace?.StartsWith("Kalendar.") == true);
 
 builder.Services.AddSerilog(configuration => configuration
     .Enrich.FromLogContext()
-    .Enrich.WithProperty("ServiceName", "Kalendar.WebApi")
+    .Enrich.WithProperty("serviceName", "Kalendar.WebApi")
     .WriteTo.Console(new RenderedCompactJsonFormatter()));
 builder.Services.AddMongoDatabase(builder.Configuration);
 builder.Services.AddUserAuthentication(builder.Configuration);
+builder.Services.AddMessaging(builder.Configuration);
+builder.Services.AddTelemetry(builder.Configuration);
+builder.Services.AddScoped<TaskEvents>();
+builder.Services.AddInternalApi(builder.Configuration);
+builder.Services.AddHostedService<TaskMetrics>();
 
 var app = builder.Build();
+app.UseTelemetry();
 app.UseExceptionHandler();
 app.UseStatusCodePages();
 app.UseAuthentication();
@@ -31,6 +45,7 @@ app.Use(async (httpContext, next) =>
 {
     using var correlationId = LogContext.PushProperty("correlationId", httpContext.TraceIdentifier);
     using var traceId = LogContext.PushProperty("traceId", Activity.Current?.TraceId.ToString());
+    using var spanId = LogContext.PushProperty("spanId", Activity.Current?.SpanId.ToString());
     await next(httpContext);
 });
 
@@ -40,5 +55,6 @@ app.MapGet("/health", () => TypedResults.Ok(new { status = "Healthy" }));
 app.MapGet("/ready", MongoInfrastructure.CheckReadinessAsync);
 app.MapAuthEndpoints();
 app.MapTaskEndpoints();
+app.MapInternalEndpoints();
 
 app.Run();
