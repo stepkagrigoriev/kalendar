@@ -1,2 +1,7 @@
 **/bin
 **/obj
+**/TestResults
+.git
+.env
+PLANS
+ssh.md

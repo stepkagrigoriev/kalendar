@@ -1,0 +1,43 @@
+name: Проверка Kalendar
+on:
+  pull_request:
+  push:
+    branches: [master]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.401
+      - name: Проверка Docker
+        run: docker info
+      - name: Восстановление зависимостей
+        run: dotnet restore Kalendar.slnx
+      - name: Сборка
+        run: dotnet build Kalendar.slnx --no-restore --configuration Release
+      - name: Тесты и покрытие
+        run: dotnet test Kalendar.slnx --no-build --configuration Release --collect:'XPlat Code Coverage' --results-directory artifacts/test-results
+      - name: Порог покрытия
+        run: dotnet run --project tools/Kalendar.Quality --no-build --configuration Release -- coverage
+      - name: Проверка секретов
+        run: dotnet run --project tools/Kalendar.Quality --no-build --configuration Release -- security
+      - name: Форматирование
+        run: dotnet format Kalendar.slnx --no-restore --verify-no-changes
+      - name: Проверка Compose
+        run: dotnet run --project tools/Kalendar.Quality --no-build --configuration Release -- compose
+      - name: Сборка образов
+        run: |
+          docker build -f src/Kalendar.WebApi/Dockerfile .
+          docker build -f src/Kalendar.Worker/Dockerfile .
+          docker build -f src/Kalendar.NotificationService/Dockerfile .
+          docker build -f tools/Kalendar.DatabaseSetup/Dockerfile .
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results
+          path: artifacts/test-results/**

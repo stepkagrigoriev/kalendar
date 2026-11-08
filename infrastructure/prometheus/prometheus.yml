@@ -1,0 +1,14 @@
+global:
+  scrape_interval: 15s
+scrape_configs:
+  - job_name: kalendar
+    static_configs:
+      - targets: [webapi:80]
+        labels:
+          service: Kalendar.WebApi
+      - targets: [worker:80]
+        labels:
+          service: Kalendar.Worker
+      - targets: [notification-service:80]
+        labels:
+          service: Kalendar.NotificationService

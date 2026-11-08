@@ -1,4 +1,43 @@
 services:
+  prometheus:
+    image: prom/prometheus:v3.7.3
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:9090:9090"
+    volumes:
+      - ./infrastructure/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:9090/-/healthy"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+  jaeger:
+    image: jaegertracing/all-in-one:1.76.0
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:16686:16686"
+    healthcheck:
+      test: ["CMD", "/go/bin/all-in-one-linux", "--version"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+  rabbitmq:
+    image: rabbitmq:4.1.4-management
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RabbitMq__Username:?Задайте RabbitMq__Username}
+      RABBITMQ_DEFAULT_PASS: ${RabbitMq__Password:?Задайте RabbitMq__Password}
+    ports:
+      - "127.0.0.1:5672:5672"
+      - "127.0.0.1:15672:15672"
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
   mongodb:
     image: mongo:8.0.32
     restart: unless-stopped
@@ -11,7 +50,7 @@ services:
     volumes:
       - mongodb-data:/data/db
     healthcheck:
-      test: ["CMD-SHELL", "mongosh --quiet --username \"$${MONGO_INITDB_ROOT_USERNAME}\" --password \"$${MONGO_INITDB_ROOT_PASSWORD}\" --authenticationDatabase admin --eval \"db.adminCommand({ ping: 1 })\" >/dev/null"]
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/27017'"]
       interval: 5s
       timeout: 5s
       retries: 12
@@ -35,39 +74,74 @@ services:
         condition: service_healthy
 
   webapi:
+    restart: unless-stopped
     build:
       context: .
       dockerfile: src/Kalendar.WebApi/Dockerfile
     ports:
-      - "5080:80"
+      - "127.0.0.1:5080:80"
     environment:
       Mongo__ConnectionString: mongodb://${KALENDAR_WEBAPI_MONGO_USER}:${KALENDAR_WEBAPI_MONGO_PASSWORD}@mongodb:27017/kalendar?authSource=kalendar
+      RabbitMq__Host: rabbitmq
+      OpenTelemetry__Endpoint: ${OpenTelemetry__Endpoint:-http://jaeger:4317}
+      RabbitMq__Username: ${RabbitMq__Username}
+      RabbitMq__Password: ${RabbitMq__Password}
       Mongo__Database: kalendar
       Jwt__SigningKey: ${Jwt__SigningKey:?Задайте Jwt__SigningKey}
       Jwt__Issuer: ${Jwt__Issuer:?Задайте Jwt__Issuer}
       Jwt__Audience: ${Jwt__Audience:?Задайте Jwt__Audience}
       Jwt__AccessTokenLifetimeMinutes: ${Jwt__AccessTokenLifetimeMinutes:?Задайте Jwt__AccessTokenLifetimeMinutes}
+      InternalApi__Key: ${InternalApi__Key:?Задайте InternalApi__Key}
     depends_on:
       database-setup:
         condition: service_completed_successfully
+      rabbitmq:
+        condition: service_healthy
   worker:
+    restart: unless-stopped
     build:
       context: .
       dockerfile: src/Kalendar.Worker/Dockerfile
     ports:
-      - "5081:80"
+      - "127.0.0.1:5081:80"
     environment:
       Mongo__ConnectionString: mongodb://${KALENDAR_WORKER_MONGO_USER}:${KALENDAR_WORKER_MONGO_PASSWORD}@mongodb:27017/kalendar?authSource=kalendar
+      InternalApi__Key: ${InternalApi__Key:?Задайте InternalApi__Key}
+      WebApi__BaseUrl: ${WebApi__BaseUrl:-http://webapi:80}
+      Scheduler__PollIntervalSeconds: ${Scheduler__PollIntervalSeconds:-5}
+      Scheduler__LeaseSeconds: ${Scheduler__LeaseSeconds:-60}
+      Scheduler__MaxAttempts: ${Scheduler__MaxAttempts:-5}
+      Scheduler__ReconcileIntervalMinutes: ${Scheduler__ReconcileIntervalMinutes:-10}
+      RabbitMq__Host: rabbitmq
+      OpenTelemetry__Endpoint: ${OpenTelemetry__Endpoint:-http://jaeger:4317}
+      RabbitMq__Username: ${RabbitMq__Username}
+      RabbitMq__Password: ${RabbitMq__Password}
       Mongo__Database: kalendar
     depends_on:
       database-setup:
         condition: service_completed_successfully
+      rabbitmq:
+        condition: service_healthy
   notification-service:
+    restart: unless-stopped
     build:
       context: .
       dockerfile: src/Kalendar.NotificationService/Dockerfile
     ports:
-      - "5082:80"
+      - "127.0.0.1:5082:80"
+    environment:
+      RabbitMq__Host: rabbitmq
+      OpenTelemetry__Endpoint: ${OpenTelemetry__Endpoint:-http://jaeger:4317}
+      RabbitMq__Username: ${RabbitMq__Username}
+      RabbitMq__Password: ${RabbitMq__Password}
+      Jwt__SigningKey: ${Jwt__SigningKey}
+      Jwt__Issuer: ${Jwt__Issuer}
+      Jwt__Audience: ${Jwt__Audience}
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
 
 volumes:
   mongodb-data:
+  rabbitmq-data:
+  prometheus-data:
