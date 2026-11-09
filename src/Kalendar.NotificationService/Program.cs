@@ -13,7 +13,7 @@ using Serilog.Formatting.Compact;
 if (args is ["--health"])
 {
     using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(4) };
-    try { Environment.ExitCode = (await client.GetAsync("http://127.0.0.1:80/ready")).IsSuccessStatusCode ? 0 : 1; }
+    try { Environment.ExitCode = (await client.GetAsync("http://127.0.0.1:80/health")).IsSuccessStatusCode ? 0 : 1; }
     catch { Environment.ExitCode = 1; }
     return;
 }
@@ -77,12 +77,7 @@ app.UseSerilogRequestLogging();
 app.UseAuthentication();
 app.UseAuthorization();
 
-app.MapGet("/health", () => TypedResults.Ok(new { status = "Healthy" }));
-app.MapGet("/ready", async (HealthCheckService health, CancellationToken ct) =>
-{
-    var healthy = (await health.CheckHealthAsync(ct)).Status == HealthStatus.Healthy;
-    return Results.Json(new { status = healthy ? "Healthy" : "Unhealthy" }, statusCode: healthy ? 200 : 503);
-});
+app.MapGet("/health", () => TypedResults.Ok());
 app.MapHub<NotificationHub>("/hubs/notifications");
 
 app.Run();

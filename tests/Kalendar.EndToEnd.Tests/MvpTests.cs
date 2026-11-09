@@ -91,7 +91,7 @@ public sealed class MvpTests : IAsyncLifetime
     public async Task RegistrationTaskReminderRecurrenceAndSignalRWorkAcrossAllServices()
     {
         var client = api.CreateClient();
-        var credentials = new { email = "mvp@example.com", password = "mvp-test-password" };
+        var credentials = new { username = "mvp-user", password = "mvp-test-password" };
         var registered = await client.PostAsJsonAsync("/api/auth/register", credentials);
         Assert.Equal(HttpStatusCode.Created, registered.StatusCode);
         var login = await (await client.PostAsJsonAsync("/api/auth/login", credentials)).Content.ReadFromJsonAsync<JsonElement>();
@@ -129,7 +129,7 @@ public sealed class MvpTests : IAsyncLifetime
         await Until(async () => (await database.GetCollection<BsonDocument>("tasks").Find(new BsonDocument("_id", ObjectId.Parse(id))).SingleAsync())["reminder"]["sentAt"].IsBsonDateTime);
         clock.Advance(TimeSpan.FromMinutes(1));
         await Until(async () => await database.GetCollection<BsonDocument>("tasks").CountDocumentsAsync(new BsonDocument("recurrenceKey", $"recurrence:{id}:{due.UtcDateTime:O}")) == 1);
-        foreach (var endpoint in new[] { "/health", "/ready", "/metrics" })
+        foreach (var endpoint in new[] { "/health", "/metrics" })
             Assert.Equal(HttpStatusCode.OK, (await client.GetAsync(endpoint)).StatusCode);
     }
 

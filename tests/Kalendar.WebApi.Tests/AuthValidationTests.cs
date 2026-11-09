@@ -7,15 +7,14 @@ namespace Kalendar.WebApi.Tests;
 public class AuthValidationTests
 {
     [Theory]
-    [InlineData("user@example.com", "12345678", true)]
-    [InlineData(" user@example.com ", "12345678", true)]
-    [InlineData("broken", "12345678", false)]
+    [InlineData("user-name", "12345678", true)]
+    [InlineData(" user-name ", "12345678", true)]
+    [InlineData("user name", "12345678", false)]
     [InlineData("", "12345678", false)]
-    [InlineData("Name <user@example.com>", "12345678", false)]
-    [InlineData("user@example.com", "short", false)]
-    public void CredentialsAreValidated(string email, string password, bool valid)
+    [InlineData("user-name", "short", false)]
+    public void CredentialsAreValidated(string username, string password, bool valid)
     {
-        Assert.Equal(valid, AuthEndpoints.Validate(new(email, password)).Count == 0);
+        Assert.Equal(valid, AuthEndpoints.Validate(new(username, password)).Count == 0);
     }
 
     [Theory]

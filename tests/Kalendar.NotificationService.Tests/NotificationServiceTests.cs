@@ -51,7 +51,6 @@ public class NotificationServiceTests : IAsyncLifetime
     }
     [Theory]
     [InlineData("/health")]
-    [InlineData("/ready")]
     public async Task ServiceEndpointReturnsHealthyJson(string path)
     {
         var client = factory.CreateClient();
@@ -59,9 +58,7 @@ public class NotificationServiceTests : IAsyncLifetime
         var response = await client.GetAsync(path);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Equal("application/json", response.Content.Headers.ContentType?.MediaType);
-        var body = await response.Content.ReadFromJsonAsync<StatusResponse>();
-        Assert.Equal("Healthy", body?.Status);
+        Assert.Empty(await response.Content.ReadAsByteArrayAsync());
         var metrics = await client.GetStringAsync("/metrics");
         Assert.Contains("http_requests_received_total", metrics);
         Assert.Contains("signalr_delivery_errors_total", metrics);
@@ -189,5 +186,4 @@ public class NotificationServiceTests : IAsyncLifetime
         Assert.Equal(HubConnectionState.Disconnected, connection.State);
     }
 
-    record StatusResponse(string Status);
-}
+    }

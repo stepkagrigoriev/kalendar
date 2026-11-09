@@ -1,5 +1,4 @@
 using System.IdentityModel.Tokens.Jwt;
-using System.Net.Mail;
 using System.Security.Claims;
 using System.Text;
 using System.Threading.RateLimiting;
@@ -51,16 +50,16 @@ static class AuthEndpoints
             if (!ObjectId.TryParse(principal.FindFirstValue("sub"), out var id))
                 return Results.Problem(statusCode: 401);
             var user = await database.GetCollection<UserDocument>("users").Find(x => x.Id == id && x.IsActive).FirstOrDefaultAsync(ct);
-            return user is null ? Results.Problem(statusCode: 401) : Results.Ok(new { id = user.Id.ToString(), user.Email });
+            return user is null ? Results.Problem(statusCode: 401) : Results.Ok(new { id = user.Id.ToString(), user.Username });
         }).RequireAuthorization();
     }
 
     internal static Dictionary<string, string[]> Validate(Credentials request)
     {
         var errors = new Dictionary<string, string[]>();
-        var email = request.Email?.Trim();
-        if (string.IsNullOrEmpty(email) || email.Length > 254 || !MailAddress.TryCreate(email, out var address) || address.Address != email)
-            errors["email"] = ["Укажите корректный email длиной до 254 символов."];
+        var username = request.Username?.Trim();
+        if (string.IsNullOrEmpty(username) || username.Length > 50 || username.Any(char.IsWhiteSpace))
+            errors["username"] = ["Укажите имя пользователя длиной до 50 символов без пробелов."];
         if (request.Password is null || request.Password.Length is < 8 or > 128)
             errors["password"] = ["Пароль должен содержать от 8 до 128 символов."];
         return errors;
@@ -76,8 +75,8 @@ static class AuthEndpoints
         var user = new UserDocument
         {
             Id = ObjectId.GenerateNewId(),
-            Email = request.Email.Trim(),
-            NormalizedEmail = request.Email.Trim().ToUpperInvariant(),
+            Username = request.Username.Trim(),
+            NormalizedUsername = request.Username.Trim().ToUpperInvariant(),
             CreatedAt = now,
             UpdatedAt = now,
             IsActive = true
@@ -90,7 +89,7 @@ static class AuthEndpoints
         }
         catch (MongoWriteException exception) when (exception.WriteError.Category == ServerErrorCategory.DuplicateKey)
         {
-            return Results.Problem(statusCode: 409, title: "Email уже занят.");
+            return Results.Problem(statusCode: 409, title: "Имя пользователя уже занято.");
         }
     }
 
@@ -98,8 +97,8 @@ static class AuthEndpoints
         IPasswordHasher<UserDocument> hasher, JwtSettings settings, TimeProvider clock, CancellationToken ct)
     {
         var users = database.GetCollection<UserDocument>("users");
-        var normalizedEmail = request.Email?.Trim().ToUpperInvariant();
-        var user = normalizedEmail is null ? null : await users.Find(x => x.NormalizedEmail == normalizedEmail).FirstOrDefaultAsync(ct);
+        var normalizedUsername = request.Username?.Trim().ToUpperInvariant();
+        var user = normalizedUsername is null ? null : await users.Find(x => x.NormalizedUsername == normalizedUsername).FirstOrDefaultAsync(ct);
         var result = user is null || request.Password is null || request.Password.Length > 128
             ? PasswordVerificationResult.Failed : hasher.VerifyHashedPassword(user, user.PasswordHash, request.Password);
         if (user is null || !user.IsActive || result == PasswordVerificationResult.Failed)
@@ -111,11 +110,11 @@ static class AuthEndpoints
                     .Set(x => x.UpdatedAt, now.UtcDateTime), cancellationToken: ct);
         var expiresAt = now.AddMinutes(settings.LifetimeMinutes);
         var token = new JwtSecurityToken(settings.Issuer, settings.Audience,
-            [new Claim("sub", user.Id.ToString()), new Claim("email", user.Email)],
+            [new Claim("sub", user.Id.ToString()), new Claim("username", user.Username)],
             now.UtcDateTime, expiresAt.UtcDateTime,
             new SigningCredentials(new SymmetricSecurityKey(Encoding.UTF8.GetBytes(settings.SigningKey)), SecurityAlgorithms.HmacSha256));
         return Results.Ok(new { accessToken = new JwtSecurityTokenHandler().WriteToken(token), expiresAt });
     }
 
-    internal sealed record Credentials(string Email, string Password);
+    internal sealed record Credentials(string Username, string Password);
 }

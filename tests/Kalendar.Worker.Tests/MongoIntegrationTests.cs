@@ -180,9 +180,6 @@ public sealed class MongoIntegrationTests : IAsyncLifetime
         var client = factory.CreateClient();
 
         Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/health")).StatusCode);
-        var ready = await client.GetAsync("/ready");
-        Assert.Equal(HttpStatusCode.OK, ready.StatusCode);
-        Assert.Equal("Healthy", (await ready.Content.ReadFromJsonAsync<StatusResponse>())?.Status);
         var metrics = await client.GetStringAsync("/metrics");
         Assert.Contains("worker_background_jobs", metrics);
         Assert.Contains("rabbitmq_messages_total", metrics);

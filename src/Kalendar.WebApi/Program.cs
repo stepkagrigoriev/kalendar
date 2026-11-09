@@ -12,7 +12,7 @@ using Serilog.Formatting.Compact;
 if (args is ["--health"])
 {
     using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(4) };
-    try { Environment.ExitCode = (await client.GetAsync("http://127.0.0.1:80/ready")).IsSuccessStatusCode ? 0 : 1; }
+    try { Environment.ExitCode = (await client.GetAsync("http://127.0.0.1:80/health")).IsSuccessStatusCode ? 0 : 1; }
     catch { Environment.ExitCode = 1; }
     return;
 }
@@ -68,8 +68,7 @@ app.UseAuthentication();
 app.UseAuthorization();
 app.UseRateLimiter();
 
-app.MapGet("/health", () => TypedResults.Ok(new { status = "Healthy" }));
-app.MapGet("/ready", MongoInfrastructure.CheckReadinessAsync);
+app.MapGet("/health", () => TypedResults.Ok());
 app.MapAuthEndpoints();
 app.MapTaskEndpoints();
 app.MapInternalEndpoints();

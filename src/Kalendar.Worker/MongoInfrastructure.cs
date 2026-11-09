@@ -66,24 +66,6 @@ static class MongoInfrastructure
         }
     }
 
-    public static async Task<IResult> CheckReadinessAsync(IMongoDatabase database, HealthCheckService health, CancellationToken cancellationToken)
-    {
-        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeout.CancelAfter(OperationTimeout);
-
-        try
-        {
-            await database.RunCommandAsync<BsonDocument>(new BsonDocument("ping", 1), cancellationToken: timeout.Token);
-            if ((await health.CheckHealthAsync(timeout.Token)).Status != HealthStatus.Healthy)
-                return Results.Json(new { status = "Unhealthy" }, statusCode: StatusCodes.Status503ServiceUnavailable);
-            return Results.Ok(new { status = "Healthy" });
-        }
-        catch (Exception)
-        {
-            return Results.Json(new { status = "Unhealthy" }, statusCode: StatusCodes.Status503ServiceUnavailable);
-        }
-    }
-
     static CreateIndexModel<BsonDocument> Index(BsonDocument keys, string name, bool unique = false) =>
         new(
             new BsonDocumentIndexKeysDefinition<BsonDocument>(keys),

@@ -71,7 +71,7 @@ public sealed class MongoIntegrationTests : IAsyncLifetime
     {
         await using var factory = CreateFactory();
         var client = factory.CreateClient();
-        var credentials = new { email = "internal@example.com", password = "test-password-123" };
+        var credentials = new { username = "internal-user", password = "test-password-123" };
         await client.PostAsJsonAsync("/api/auth/register", credentials);
         var token = (await (await client.PostAsJsonAsync("/api/auth/login", credentials)).Content.ReadFromJsonAsync<TokenResponse>())!;
         client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token.AccessToken);
@@ -115,10 +115,10 @@ public sealed class MongoIntegrationTests : IAsyncLifetime
     public async Task TasksListsFiltersAndOwnershipWorkTogether()
     {
         await using var factory = CreateFactory();
-        async Task<HttpClient> User(string email)
+        async Task<HttpClient> User(string username)
         {
             var client = factory.CreateClient();
-            var credentials = new { email, password = "test-password-123" };
+            var credentials = new { username, password = "test-password-123" };
             Assert.Equal(HttpStatusCode.Created, (await client.PostAsJsonAsync("/api/auth/register", credentials)).StatusCode);
             var token = (await (await client.PostAsJsonAsync("/api/auth/login", credentials)).Content.ReadFromJsonAsync<TokenResponse>())!;
             client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token.AccessToken);
@@ -174,20 +174,20 @@ public sealed class MongoIntegrationTests : IAsyncLifetime
         await using var factory = CreateFactory();
         var client = factory.CreateClient();
         Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/users/me")).StatusCode);
-        var credentials = new { email = " User@example.com ", password = "test-password-123" };
+        var credentials = new { username = " User-name ", password = "test-password-123" };
         var registration = await client.PostAsJsonAsync("/api/auth/register", credentials);
         Assert.Equal(HttpStatusCode.Created, registration.StatusCode);
         var id = (await registration.Content.ReadFromJsonAsync<IdResponse>())!.Id;
         var user = await Database().GetCollection<BsonDocument>("users").Find(new BsonDocument("_id", ObjectId.Parse(id))).SingleAsync();
-        Assert.Equal("USER@EXAMPLE.COM", user["normalizedEmail"].AsString);
+        Assert.Equal("USER-NAME", user["normalizedUsername"].AsString);
         Assert.NotEqual(credentials.password, user["passwordHash"].AsString);
         Assert.Equal(HttpStatusCode.Conflict, (await client.PostAsJsonAsync("/api/auth/register", credentials)).StatusCode);
-        var invalid = await client.PostAsJsonAsync("/api/auth/register", new { email = "broken", password = "short" });
+        var invalid = await client.PostAsJsonAsync("/api/auth/register", new { username = "bad name", password = "short" });
         Assert.Equal(HttpStatusCode.BadRequest, invalid.StatusCode);
         Assert.Equal("application/problem+json", invalid.Content.Headers.ContentType!.MediaType);
 
-        var wrongPassword = await client.PostAsJsonAsync("/api/auth/login", new { email = "User@example.com", password = "wrong" });
-        var unknown = await client.PostAsJsonAsync("/api/auth/login", new { email = "missing@example.com", password = "wrong" });
+        var wrongPassword = await client.PostAsJsonAsync("/api/auth/login", new { username = "User-name", password = "wrong" });
+        var unknown = await client.PostAsJsonAsync("/api/auth/login", new { username = "missing-user", password = "wrong" });
         Assert.Equal(HttpStatusCode.Unauthorized, wrongPassword.StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized, unknown.StatusCode);
         var login = await client.PostAsJsonAsync("/api/auth/login", credentials);
@@ -219,8 +219,8 @@ public sealed class MongoIntegrationTests : IAsyncLifetime
         var client = factory.CreateClient();
         for (var i = 0; i < 10; i++)
             Assert.Equal(HttpStatusCode.Unauthorized,
-                (await client.PostAsJsonAsync("/api/auth/login", new { email = "unknown@example.com", password = "wrong" })).StatusCode);
-        var limited = await client.PostAsJsonAsync("/api/auth/login", new { email = "unknown@example.com", password = "wrong" });
+                (await client.PostAsJsonAsync("/api/auth/login", new { username = "unknown-user", password = "wrong" })).StatusCode);
+        var limited = await client.PostAsJsonAsync("/api/auth/login", new { username = "unknown-user", password = "wrong" });
         Assert.Equal(HttpStatusCode.TooManyRequests, limited.StatusCode);
         Assert.Equal("application/problem+json", limited.Content.Headers.ContentType!.MediaType);
         Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/health")).StatusCode);
@@ -236,11 +236,8 @@ public sealed class MongoIntegrationTests : IAsyncLifetime
         var client = factory.CreateClient();
 
         var health = await client.GetAsync("/health");
-        var ready = await client.GetAsync("/ready");
 
         Assert.Equal(HttpStatusCode.OK, health.StatusCode);
-        Assert.Equal(HttpStatusCode.OK, ready.StatusCode);
-        Assert.Equal("Healthy", (await ready.Content.ReadFromJsonAsync<StatusResponse>())?.Status);
         var metrics = await client.GetStringAsync("/metrics");
         Assert.Contains("http_requests_received_total", metrics);
         Assert.Contains("tasks_pending_total", metrics);
@@ -249,7 +246,7 @@ public sealed class MongoIntegrationTests : IAsyncLifetime
         var database = Database();
         var collections = await (await database.ListCollectionNamesAsync()).ToListAsync();
         Assert.Equal(["taskLists", "tasks", "users"], collections.Order());
-        await AssertIndexes(database.GetCollection<BsonDocument>("users"), "_id_", "normalizedEmail_unique");
+        await AssertIndexes(database.GetCollection<BsonDocument>("users"), "_id_", "normalizedUsername_unique");
         await AssertIndexes(database.GetCollection<BsonDocument>("taskLists"), "_id_", "userId_name_unique");
         await AssertIndexes(
             database.GetCollection<BsonDocument>("tasks"),
@@ -264,15 +261,8 @@ public sealed class MongoIntegrationTests : IAsyncLifetime
             database.GetCollection<BsonDocument>("backgroundJobs").InsertOneAsync(new BsonDocument("test", true)));
         await Assert.ThrowsAnyAsync<MongoException>(() =>
             database.GetCollection<BsonDocument>("backgroundJobs").Find(FilterDefinition<BsonDocument>.Empty).FirstOrDefaultAsync());
-        var port = container.GetMappedPublicPort(27017);
         await container.StopAsync();
-        Assert.Equal(HttpStatusCode.ServiceUnavailable, (await client.GetAsync("/ready")).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/health")).StatusCode);
-        using var recovered = new CancellationTokenSource(TimeSpan.FromSeconds(25));
-        await container.StartAsync(recovered.Token);
-        Assert.Equal(port, container.GetMappedPublicPort(27017));
-        while ((await client.GetAsync("/ready", recovered.Token)).StatusCode != HttpStatusCode.OK)
-            await Task.Delay(100, recovered.Token);
     }
 
     [Fact]
@@ -283,9 +273,9 @@ public sealed class MongoIntegrationTests : IAsyncLifetime
 
         var database = Database();
         var users = database.GetCollection<BsonDocument>("users");
-        await users.InsertOneAsync(new BsonDocument("normalizedEmail", "USER@EXAMPLE.COM"));
+        await users.InsertOneAsync(new BsonDocument("normalizedUsername", "USER-NAME"));
         await Assert.ThrowsAsync<MongoWriteException>(() =>
-            users.InsertOneAsync(new BsonDocument("normalizedEmail", "USER@EXAMPLE.COM")));
+            users.InsertOneAsync(new BsonDocument("normalizedUsername", "USER-NAME")));
 
         var tasks = database.GetCollection<BsonDocument>("tasks");
         await tasks.InsertManyAsync([new BsonDocument("title", "one"), new BsonDocument("title", "two")]);
