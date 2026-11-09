@@ -2,6 +2,7 @@ using System.Diagnostics;
 using Kalendar.WebApi;
 using Kalendar.WebApi.Auth;
 using Kalendar.WebApi.Tasks;
+using Microsoft.OpenApi;
 using MongoDB.Bson.Serialization.Conventions;
 using MongoDB.Driver;
 using Serilog;
@@ -28,6 +29,19 @@ builder.Services.AddMongoDatabase(builder.Configuration);
 builder.Services.AddUserAuthentication(builder.Configuration);
 builder.Services.AddMessaging(builder.Configuration);
 builder.Services.AddTelemetry(builder.Configuration);
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen(options =>
+{
+    options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+    {
+        Name = "Authorization",
+        Type = SecuritySchemeType.Http,
+        Scheme = "bearer",
+        BearerFormat = "JWT",
+        In = ParameterLocation.Header,
+        Description = "Введите JWT-токен без префикса Bearer."
+    });
+});
 builder.Services.AddScoped<TaskEvents>();
 builder.Services.AddInternalApi(builder.Configuration);
 builder.Services.AddHostedService<TaskMetrics>();
@@ -48,6 +62,8 @@ app.Use(async (httpContext, next) =>
 });
 
 app.UseSerilogRequestLogging();
+app.UseSwagger();
+app.UseSwaggerUI();
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseRateLimiter();
