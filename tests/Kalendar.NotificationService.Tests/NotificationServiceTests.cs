@@ -145,6 +145,31 @@ public class NotificationServiceTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task BrowserAccessTokenIsAcceptedWithoutAppearingInRequestLogs()
+    {
+        var token = Token("0123456789abcdef01234567");
+        var output = Console.Out;
+        using var logs = new StringWriter();
+        try
+        {
+            Console.SetOut(TextWriter.Synchronized(logs));
+            var client = factory.CreateClient();
+            var response = await client.PostAsync($"/hubs/notifications/negotiate?negotiateVersion=1&access_token={token}", null);
+
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            Assert.Equal(HttpStatusCode.Unauthorized, (await client.PostAsync("/hubs/notifications/negotiate?negotiateVersion=1", null)).StatusCode);
+            Assert.Contains("\"RequestPath\":\"/hubs/notifications/negotiate\"", logs.ToString());
+            Assert.Contains("\"StatusCode\":401", logs.ToString());
+            Assert.DoesNotContain(token, logs.ToString());
+            Assert.DoesNotContain("access_token", logs.ToString());
+        }
+        finally
+        {
+            Console.SetOut(output);
+        }
+    }
+
+    [Fact]
     public async Task SignalRClientConnectsAndDisconnects()
     {
         var timeout = TimeSpan.FromSeconds(10);

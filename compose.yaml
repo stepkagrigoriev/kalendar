@@ -18,7 +18,7 @@ services:
     ports:
       - "127.0.0.1:16686:16686"
     healthcheck:
-      test: ["CMD", "/go/bin/all-in-one-linux", "--version"]
+      test: ["CMD", "/go/bin/all-in-one-linux", "status", "--status.http.host-port=127.0.0.1:14269"]
       interval: 10s
       timeout: 5s
       retries: 6

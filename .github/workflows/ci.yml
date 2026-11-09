@@ -21,7 +21,7 @@ jobs:
       - name: Сборка
         run: dotnet build Kalendar.slnx --no-restore --configuration Release
       - name: Тесты и покрытие
-        run: dotnet test Kalendar.slnx --no-build --configuration Release --collect:'XPlat Code Coverage' --results-directory artifacts/test-results
+        run: dotnet test Kalendar.slnx --no-build --configuration Release --collect:'XPlat Code Coverage' --results-directory artifacts/test-results --blame-hang-timeout 90s --blame-hang-dump-type none
       - name: Порог покрытия
         run: dotnet run --project tools/Kalendar.Quality --no-build --configuration Release -- coverage
       - name: Проверка секретов

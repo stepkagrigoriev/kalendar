@@ -20,6 +20,7 @@ var builder = WebApplication.CreateBuilder(args);
 ConventionRegistry.Register("camelCase", new ConventionPack { new CamelCaseElementNameConvention() }, type => type.Namespace?.StartsWith("Kalendar.") == true);
 
 builder.Services.AddSerilog(configuration => configuration
+    .MinimumLevel.Override("Microsoft.AspNetCore.Hosting.Diagnostics", Serilog.Events.LogEventLevel.Warning)
     .Enrich.FromLogContext()
     .Enrich.WithProperty("serviceName", "Kalendar.WebApi")
     .WriteTo.Console(new RenderedCompactJsonFormatter()));
@@ -35,9 +36,6 @@ var app = builder.Build();
 app.UseTelemetry();
 app.UseExceptionHandler();
 app.UseStatusCodePages();
-app.UseAuthentication();
-app.UseAuthorization();
-app.UseRateLimiter();
 
 await MongoInfrastructure.InitializeAsync(app.Services.GetRequiredService<IMongoDatabase>(), app.Logger);
 
@@ -50,6 +48,9 @@ app.Use(async (httpContext, next) =>
 });
 
 app.UseSerilogRequestLogging();
+app.UseAuthentication();
+app.UseAuthorization();
+app.UseRateLimiter();
 
 app.MapGet("/health", () => TypedResults.Ok(new { status = "Healthy" }));
 app.MapGet("/ready", MongoInfrastructure.CheckReadinessAsync);

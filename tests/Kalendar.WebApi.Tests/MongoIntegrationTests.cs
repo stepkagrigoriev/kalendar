@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using DotNet.Testcontainers.Builders;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Configuration;
@@ -26,11 +27,20 @@ public sealed class MongoIntegrationTests : IAsyncLifetime
     readonly MongoDbContainer container = new MongoDbBuilder("mongo:8.0.32")
         .WithUsername(RootUsername)
         .WithPassword(RootPassword)
+        .WithPortBinding(AvailablePort(), 27017)
+        .WithWaitStrategy(Wait.ForUnixContainer().UntilExternalTcpPortIsAvailable(27017))
         .WithEnvironment("KALENDAR_WEBAPI_MONGO_USER", WebApiUsername)
         .WithEnvironment("KALENDAR_WEBAPI_MONGO_PASSWORD", WebApiPassword)
         .WithEnvironment("KALENDAR_WORKER_MONGO_USER", WorkerUsername)
         .WithEnvironment("KALENDAR_WORKER_MONGO_PASSWORD", WorkerPassword)
         .Build();
+
+    static int AvailablePort()
+    {
+        using var listener = new System.Net.Sockets.TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        return ((IPEndPoint)listener.LocalEndpoint).Port;
+    }
 
     public async Task InitializeAsync()
     {
@@ -254,11 +264,13 @@ public sealed class MongoIntegrationTests : IAsyncLifetime
             database.GetCollection<BsonDocument>("backgroundJobs").InsertOneAsync(new BsonDocument("test", true)));
         await Assert.ThrowsAnyAsync<MongoException>(() =>
             database.GetCollection<BsonDocument>("backgroundJobs").Find(FilterDefinition<BsonDocument>.Empty).FirstOrDefaultAsync());
+        var port = container.GetMappedPublicPort(27017);
         await container.StopAsync();
         Assert.Equal(HttpStatusCode.ServiceUnavailable, (await client.GetAsync("/ready")).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/health")).StatusCode);
-        await container.StartAsync();
         using var recovered = new CancellationTokenSource(TimeSpan.FromSeconds(25));
+        await container.StartAsync(recovered.Token);
+        Assert.Equal(port, container.GetMappedPublicPort(27017));
         while ((await client.GetAsync("/ready", recovered.Token)).StatusCode != HttpStatusCode.OK)
             await Task.Delay(100, recovered.Token);
     }

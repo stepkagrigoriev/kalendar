@@ -21,6 +21,7 @@ if (args is ["--health"])
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddSerilog(configuration => configuration
+    .MinimumLevel.Override("Microsoft.AspNetCore.Hosting.Diagnostics", Serilog.Events.LogEventLevel.Warning)
     .Enrich.FromLogContext()
     .Enrich.WithProperty("serviceName", "Kalendar.NotificationService")
     .WriteTo.Console(new RenderedCompactJsonFormatter()));
@@ -63,8 +64,6 @@ builder.Services.AddTelemetry(builder.Configuration);
 
 var app = builder.Build();
 app.UseTelemetry();
-app.UseAuthentication();
-app.UseAuthorization();
 
 app.Use(async (httpContext, next) =>
 {
@@ -75,6 +74,8 @@ app.Use(async (httpContext, next) =>
 });
 
 app.UseSerilogRequestLogging();
+app.UseAuthentication();
+app.UseAuthorization();
 
 app.MapGet("/health", () => TypedResults.Ok(new { status = "Healthy" }));
 app.MapGet("/ready", async (HealthCheckService health, CancellationToken ct) =>

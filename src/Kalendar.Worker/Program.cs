@@ -19,6 +19,7 @@ var builder = WebApplication.CreateBuilder(args);
 ConventionRegistry.Register("camelCase", new ConventionPack { new CamelCaseElementNameConvention() }, type => type.Namespace?.StartsWith("Kalendar.") == true);
 
 builder.Services.AddSerilog(configuration => configuration
+    .MinimumLevel.Override("Microsoft.AspNetCore.Hosting.Diagnostics", Serilog.Events.LogEventLevel.Warning)
     .Enrich.FromLogContext()
     .Enrich.WithProperty("serviceName", "Kalendar.Worker")
     .WriteTo.Console(new RenderedCompactJsonFormatter()));
