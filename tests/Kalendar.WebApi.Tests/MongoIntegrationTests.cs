@@ -24,7 +24,7 @@ public sealed class MongoIntegrationTests : IAsyncLifetime
     readonly RabbitMqContainer rabbit = new RabbitMqBuilder("rabbitmq:4.1.4-management")
         .WithUsername("kalendar-tests").WithPassword("rabbit-test-password").Build();
 
-    readonly MongoDbContainer container = new MongoDbBuilder("mongo:8.0.32")
+    readonly MongoDbContainer container = new MongoDbBuilder("mongo:7.0.21")
         .WithUsername(RootUsername)
         .WithPassword(RootPassword)
         .WithPortBinding(AvailablePort(), 27017)

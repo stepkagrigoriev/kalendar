@@ -41,6 +41,10 @@ builder.Services.AddSwaggerGen(options =>
         In = ParameterLocation.Header,
         Description = "Введите JWT-токен без префикса Bearer."
     });
+    options.AddSecurityRequirement(document => new OpenApiSecurityRequirement
+    {
+        [new OpenApiSecuritySchemeReference("Bearer", document)] = []
+    });
 });
 builder.Services.AddScoped<TaskEvents>();
 builder.Services.AddInternalApi(builder.Configuration);

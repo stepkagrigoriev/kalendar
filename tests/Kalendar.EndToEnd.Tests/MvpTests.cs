@@ -23,7 +23,7 @@ namespace Kalendar.EndToEnd.Tests;
 
 public sealed class MvpTests : IAsyncLifetime
 {
-    readonly MongoDbContainer mongo = new MongoDbBuilder("mongo:8.0.32").WithUsername("root").WithPassword("root-test-password").Build();
+    readonly MongoDbContainer mongo = new MongoDbBuilder("mongo:7.0.21").WithUsername("root").WithPassword("root-test-password").Build();
     readonly RabbitMqContainer rabbit = new RabbitMqBuilder("rabbitmq:4.1.4-management").WithUsername("tests").WithPassword("rabbit-test-password").Build();
     readonly FakeTimeProvider clock = new(DateTimeOffset.FromUnixTimeMilliseconds(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()));
     WebApplicationFactory<web::Program> api = null!;
