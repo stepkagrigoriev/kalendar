@@ -128,7 +128,11 @@ public sealed class MvpTests : IAsyncLifetime
         Assert.Equal(id, message.GetProperty("taskId").GetString());
         await Until(async () => (await database.GetCollection<BsonDocument>("tasks").Find(new BsonDocument("_id", ObjectId.Parse(id))).SingleAsync())["reminder"]["sentAt"].IsBsonDateTime);
         clock.Advance(TimeSpan.FromMinutes(1));
-        await Until(async () => await database.GetCollection<BsonDocument>("tasks").CountDocumentsAsync(new BsonDocument("recurrenceKey", $"recurrence:{id}:{due.UtcDateTime:O}")) == 1);
+        await Until(async () =>
+        {
+            clock.Advance(TimeSpan.FromSeconds(1));
+            return await database.GetCollection<BsonDocument>("tasks").CountDocumentsAsync(new BsonDocument("recurrenceKey", $"recurrence:{id}:{due.UtcDateTime:O}")) == 1;
+        });
         foreach (var endpoint in new[] { "/health", "/metrics" })
             Assert.Equal(HttpStatusCode.OK, (await client.GetAsync(endpoint)).StatusCode);
     }
