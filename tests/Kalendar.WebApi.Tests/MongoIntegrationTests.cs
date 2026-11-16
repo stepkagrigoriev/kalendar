@@ -3,6 +3,8 @@ using System.Net.Http.Json;
 using DotNet.Testcontainers.Builders;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Configuration;
 using MongoDB.Bson;
 using MongoDB.Driver;
@@ -287,8 +289,54 @@ public sealed class MongoIntegrationTests : IAsyncLifetime
         await AssertIndexes(tasks, "_id_", "recurrenceKey_unique", "userId_dueAt", "userId_listId_dueAt", "userId_status_dueAt", "userId_tags");
     }
 
-    WebApplicationFactory<Program> CreateFactory() =>
+    [Fact]
+    public async Task TrustedProxySeparatesRateLimitsByForwardedClient()
+    {
+        await using var factory = ProxiedFactory();
+        var client = factory.CreateClient();
+        for (var i = 0; i < 10; i++)
+            Assert.Equal(HttpStatusCode.BadRequest, await RegisterAsync(client, "10.112.128.11", "203.0.113.1"));
+        Assert.Equal(HttpStatusCode.TooManyRequests, await RegisterAsync(client, "10.112.128.11", "203.0.113.1"));
+        Assert.Equal(HttpStatusCode.BadRequest, await RegisterAsync(client, "10.112.128.11", "203.0.113.2"));
+    }
+
+    [Fact]
+    public async Task UntrustedSourceCannotSpoofForwardedClient()
+    {
+        await using var factory = ProxiedFactory();
+        var client = factory.CreateClient();
+        for (var i = 0; i < 10; i++)
+            Assert.Equal(HttpStatusCode.BadRequest, await RegisterAsync(client, "198.51.100.7", $"203.0.113.{i + 1}"));
+        Assert.Equal(HttpStatusCode.TooManyRequests, await RegisterAsync(client, "198.51.100.7", "203.0.113.100"));
+    }
+
+    static async Task<HttpStatusCode> RegisterAsync(HttpClient client, string remoteIp, string forwardedFor)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/auth/register") { Content = JsonContent.Create(new { username = "", password = "" }) };
+        request.Headers.Add("X-Test-Remote-Ip", remoteIp);
+        request.Headers.Add("X-Forwarded-For", forwardedFor);
+        return (await client.SendAsync(request)).StatusCode;
+    }
+
+    WebApplicationFactory<Program> ProxiedFactory() => CreateFactory("10.112.0.0/16").WithWebHostBuilder(builder => builder.ConfigureServices(services =>
+        services.AddSingleton<IStartupFilter, RemoteIpFilter>()));
+
+    sealed class RemoteIpFilter : IStartupFilter
+    {
+        public Action<IApplicationBuilder> Configure(Action<IApplicationBuilder> next) => app =>
+        {
+            app.Use((context, nextMiddleware) =>
+            {
+                context.Connection.RemoteIpAddress = IPAddress.Parse(context.Request.Headers["X-Test-Remote-Ip"].ToString());
+                return nextMiddleware(context);
+            });
+            next(app);
+        };
+    }
+
+    WebApplicationFactory<Program> CreateFactory(string? knownNetworks = null) =>
         new WebApplicationFactory<Program>().WithWebHostBuilder(builder => builder
+            .UseSetting("ForwardedHeaders:KnownNetworks", knownNetworks)
             .UseSetting("Mongo:ConnectionString", ApplicationConnectionString())
             .UseSetting("RabbitMq:Host", rabbit.Hostname)
             .UseSetting("RabbitMq:Port", rabbit.GetMappedPublicPort(5672).ToString())

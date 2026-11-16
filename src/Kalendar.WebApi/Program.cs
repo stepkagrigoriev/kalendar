@@ -49,8 +49,11 @@ builder.Services.AddSwaggerGen(options =>
 builder.Services.AddScoped<TaskEvents>();
 builder.Services.AddInternalApi(builder.Configuration);
 builder.Services.AddHostedService<TaskMetrics>();
+var forwardedHeaders = ProxyHeaders.Read(builder.Configuration);
 
 var app = builder.Build();
+if (forwardedHeaders is not null)
+    app.UseForwardedHeaders(forwardedHeaders);
 app.UseTelemetry();
 app.UseExceptionHandler();
 app.UseStatusCodePages();
