@@ -186,4 +186,4 @@ public class NotificationServiceTests : IAsyncLifetime
         Assert.Equal(HubConnectionState.Disconnected, connection.State);
     }
 
-    }
+}
