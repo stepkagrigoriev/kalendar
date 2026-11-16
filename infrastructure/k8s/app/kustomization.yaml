@@ -9,3 +9,16 @@ resources:
   - worker.yaml
   - notification-service.yaml
   - ingress.yaml
+images:
+  - name: kalendar-webapi
+    newName: cr.yandex/crpgrun8oeoim2drleur/kalendar-webapi
+    newTag: 843bec4211b491eea88173fc6ebfb6a75009f056
+  - name: kalendar-worker
+    newName: cr.yandex/crpgrun8oeoim2drleur/kalendar-worker
+    newTag: 843bec4211b491eea88173fc6ebfb6a75009f056
+  - name: kalendar-notification-service
+    newName: cr.yandex/crpgrun8oeoim2drleur/kalendar-notification-service
+    newTag: 843bec4211b491eea88173fc6ebfb6a75009f056
+  - name: kalendar-database-setup
+    newName: cr.yandex/crpgrun8oeoim2drleur/kalendar-database-setup
+    newTag: 843bec4211b491eea88173fc6ebfb6a75009f056
