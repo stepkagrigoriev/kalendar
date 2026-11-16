@@ -1,0 +1,54 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: webapi
+spec:
+  selector:
+    matchLabels:
+      app: webapi
+  template:
+    metadata:
+      labels:
+        app: webapi
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "80"
+        prometheus.io/path: /metrics
+    spec:
+      containers:
+        - name: webapi
+          image: kalendar-webapi
+          ports:
+            - containerPort: 80
+          envFrom:
+            - secretRef:
+                name: kalendar
+          env:
+            - name: Mongo__ConnectionString
+              value: mongodb://$(KALENDAR_WEBAPI_MONGO_USER):$(KALENDAR_WEBAPI_MONGO_PASSWORD)@mongodb:27017/kalendar?authSource=kalendar
+            - name: Mongo__Database
+              value: kalendar
+            - name: RabbitMq__Host
+              value: rabbitmq
+            - name: OpenTelemetry__Endpoint
+              value: http://jaeger.observability:4317
+            - name: ForwardedHeaders__KnownNetworks
+              value: 10.112.128.0/17
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 80
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 80
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: webapi
+spec:
+  selector:
+    app: webapi
+  ports:
+    - port: 80

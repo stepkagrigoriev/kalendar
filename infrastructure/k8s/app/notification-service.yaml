@@ -1,0 +1,50 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notification-service
+spec:
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: notification-service
+  template:
+    metadata:
+      labels:
+        app: notification-service
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "80"
+        prometheus.io/path: /metrics
+    spec:
+      containers:
+        - name: notification-service
+          image: kalendar-notification-service
+          ports:
+            - containerPort: 80
+          envFrom:
+            - secretRef:
+                name: kalendar
+          env:
+            - name: RabbitMq__Host
+              value: rabbitmq
+            - name: OpenTelemetry__Endpoint
+              value: http://jaeger.observability:4317
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 80
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 80
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: notification-service
+spec:
+  selector:
+    app: notification-service
+  ports:
+    - port: 80

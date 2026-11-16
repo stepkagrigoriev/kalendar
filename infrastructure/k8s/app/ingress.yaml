@@ -1,0 +1,38 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: kalendar
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts: [api.kalendar-app.ru]
+      secretName: kalendar-tls
+  rules:
+    - host: api.kalendar-app.ru
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: webapi
+                port:
+                  number: 80
+          - path: /swagger
+            pathType: Prefix
+            backend:
+              service:
+                name: webapi
+                port:
+                  number: 80
+          - path: /hubs
+            pathType: Prefix
+            backend:
+              service:
+                name: notification-service
+                port:
+                  number: 80

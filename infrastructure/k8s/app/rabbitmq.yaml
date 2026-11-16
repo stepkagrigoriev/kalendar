@@ -1,0 +1,58 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: rabbitmq
+spec:
+  serviceName: rabbitmq
+  selector:
+    matchLabels:
+      app: rabbitmq
+  template:
+    metadata:
+      labels:
+        app: rabbitmq
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "15692"
+        prometheus.io/path: /metrics
+    spec:
+      containers:
+        - name: rabbitmq
+          image: rabbitmq:4.1.4-management
+          ports:
+            - containerPort: 5672
+          env:
+            - name: RABBITMQ_DEFAULT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: kalendar
+                  key: RabbitMq__Username
+            - name: RABBITMQ_DEFAULT_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: kalendar
+                  key: RabbitMq__Password
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/rabbitmq
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: 2Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rabbitmq
+spec:
+  selector:
+    app: rabbitmq
+  ports:
+    - name: amqp
+      port: 5672
+    - name: management
+      port: 15672
