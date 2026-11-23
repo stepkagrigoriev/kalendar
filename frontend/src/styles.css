@@ -24,12 +24,10 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .icon-button svg { height: 18px; width: 18px; }
 
 /* Auth */
-.auth-page { background: var(--paper); display: grid; grid-template-columns: minmax(0, 1fr) minmax(270px, 34%); min-height: 100vh; }
-.auth-panel { align-self: center; justify-self: center; max-width: 390px; padding: 48px 24px; width: 100%; }
+.auth-page { align-items: center; background: var(--paper); display: grid; justify-items: center; min-height: 100vh; padding: 24px; }
+.auth-panel { max-width: 360px; padding: 24px 0; width: 100%; }
 .brand-mark { align-items: center; background: var(--rail); border-radius: 50%; color: #f3ede5; display: flex; font-family: 'IBM Plex Sans Condensed', sans-serif; font-size: 24px; font-weight: 600; height: 42px; justify-content: center; margin-bottom: 40px; width: 42px; }
-.auth-panel h1 { font-family: 'IBM Plex Sans Condensed', sans-serif; font-size: clamp(46px, 5vw, 68px); font-weight: 500; letter-spacing: -.045em; line-height: .94; margin: 13px 0 20px; text-wrap: balance; }
-.auth-panel h1 em { color: var(--copper); font-style: normal; }
-.auth-copy { color: var(--muted); font-size: 15px; line-height: 1.6; margin: 0 0 35px; max-width: 295px; }
+.auth-panel h1 { font-family: 'IBM Plex Sans Condensed', sans-serif; font-size: 38px; font-weight: 500; letter-spacing: -.045em; line-height: 1; margin: 0 0 28px; text-wrap: balance; }
 .auth-form { display: grid; gap: 17px; }
 label { color: var(--ink); display: grid; font-size: 13px; font-weight: 500; gap: 7px; }
 input, select, textarea { background: white; border: 1px solid #cfd7d0; border-radius: 4px; color: var(--ink); font-size: 14px; min-height: 42px; padding: 0 12px; width: 100%; }
@@ -37,9 +35,7 @@ textarea { min-height: 88px; padding: 10px 12px; resize: vertical; }
 input::placeholder, textarea::placeholder { color: #9aa59e; }
 .auth-form .button { margin-top: 5px; }
 .form-error { color: #a64335; font-size: 13px; line-height: 1.4; margin: -2px 0 0; }
-.auth-panel > .text-button { margin-top: 22px; }
-.auth-aside { align-items: flex-end; background: var(--rail); color: #f1ece3; display: flex; flex-direction: column; font-family: 'IBM Plex Sans Condensed', sans-serif; font-size: clamp(25px, 3vw, 40px); font-weight: 500; justify-content: center; letter-spacing: -.025em; line-height: 1.1; padding: 8vw; }
-.auth-aside span:last-child { color: #bf8870; }
+.auth-panel > .text-button { margin-top: 20px; }
 
 /* Shell */
 .app-shell { display: grid; grid-template-columns: 204px minmax(0, 1fr); min-height: 100vh; }
@@ -59,7 +55,6 @@ input::placeholder, textarea::placeholder { color: #9aa59e; }
 .add-list-button:hover { color: var(--ink); }
 .add-list-button svg { height: 14px; width: 14px; }
 .nav-dot { background: var(--copper); border-radius: 50%; height: 7px; width: 7px; }
-.sidebar-note { color: #99958c; font-size: 11px; line-height: 1.55; margin: 29px 10px; }
 .sidebar-bottom { margin-top: auto; }
 .user-chip { align-items: center; border-top: 1px solid #d9d4ca; display: flex; gap: 9px; padding: 16px 2px 0; }
 .avatar { align-items: center; background: #d9d4ca; border-radius: 50%; color: #626057; display: flex; font-size: 11px; height: 25px; justify-content: center; width: 25px; }
@@ -178,23 +173,12 @@ input::placeholder, textarea::placeholder { color: #9aa59e; }
 .week-event.is-complete { opacity: .55; }
 .now-line { border-top: 1px solid var(--copper); height: 1px; left: 0; pointer-events: none; position: absolute; right: 0; z-index: 4; }
 .now-line i { background: var(--copper); border-radius: 50%; display: block; height: 6px; left: -3px; position: absolute; top: -3px; width: 6px; }
-.agenda-list { background: var(--paper); margin: 0 auto; max-width: 900px; }
-.agenda-day { border-bottom: 1px solid var(--line); display: grid; grid-template-columns: 220px minmax(0, 1fr); padding: 23px 25px; }
-.agenda-date strong { display: block; font-family: 'IBM Plex Sans Condensed', sans-serif; font-size: 21px; font-weight: 500; margin-top: 5px; }
-.agenda-tasks { display: grid; gap: 5px; }
-.agenda-task { align-items: center; background: transparent; border: 0; border-radius: 3px; color: var(--ink); display: grid; gap: 10px; grid-template-columns: 67px 8px minmax(0, 1fr) 100px; min-height: 38px; padding: 4px 8px; text-align: left; }
-.agenda-task:hover { background: #f1f3ef; }
-.agenda-time, .agenda-list-name { color: var(--muted); font-size: 11px; }
-.agenda-dot { border-radius: 50%; height: 7px; width: 7px; }
-.agenda-task .is-complete { color: var(--muted); text-decoration: line-through; }
-.agenda-list-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.agenda-empty { padding-bottom: 10px; }
 
 @media (max-width: 800px) {
   .app-shell { display: block; }
   .sidebar { align-items: center; flex-direction: row; height: 58px; padding: 0 17px; }
   .sidebar-top { flex: 1; }
-  .sidebar-rule, .sidebar-content, .sidebar-note { display: none; }
+  .sidebar-rule, .sidebar-content { display: none; }
   .sidebar-bottom { margin: 0; }
   .user-chip { border: 0; padding: 0; }
   .user-name { display: none; }
@@ -212,9 +196,8 @@ input::placeholder, textarea::placeholder { color: #9aa59e; }
   .task-pill { font-size: 10px; padding: 3px; }
 }
 @media (max-width: 560px) {
-  .auth-page { display: block; }
-  .auth-panel { padding: 58px 27px 44px; }
-  .auth-aside { align-items: flex-start; font-size: 27px; min-height: 190px; padding: 40px 27px; }
+  .auth-page { padding: 18px; }
+  .auth-panel { padding: 24px 0; }
   .today-button { display: none; }
   .add-button span { display: none; }
   .add-button { padding: 0; width: 38px; }
@@ -235,9 +218,5 @@ input::placeholder, textarea::placeholder { color: #9aa59e; }
   .week-date-header > strong { font-size: 24px; }
   .week-date-header em { display: none; }
   .week-event { padding: 6px 6px; }
-  .agenda-day { display: block; padding: 18px 14px; }
-  .agenda-date { margin-bottom: 13px; }
-  .agenda-task { grid-template-columns: 55px 8px minmax(0, 1fr); }
-  .agenda-list-name { display: none; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; } }

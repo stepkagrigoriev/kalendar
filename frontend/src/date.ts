@@ -2,13 +2,11 @@ const monthFormatter = new Intl.DateTimeFormat('en-US', { month: 'long', year: '
 const weekdayFormatter = new Intl.DateTimeFormat('en-US', { weekday: 'short' })
 const dayFormatter = new Intl.DateTimeFormat('en-US', { day: 'numeric' })
 const timeFormatter = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit' })
-const agendaDateFormatter = new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
 
 export function monthLabel(date: Date) { return monthFormatter.format(date) }
 export function weekdayLabel(date: Date) { return weekdayFormatter.format(date) }
 export function dayLabel(date: Date) { return dayFormatter.format(date) }
 export function timeLabel(date: Date) { return timeFormatter.format(date) }
-export function agendaDateLabel(date: Date) { return agendaDateFormatter.format(date) }
 
 export function monthStart(date: Date) { return new Date(date.getFullYear(), date.getMonth(), 1) }
 export function nextMonth(date: Date) { return new Date(date.getFullYear(), date.getMonth() + 1, 1) }
