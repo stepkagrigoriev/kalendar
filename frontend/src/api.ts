@@ -1,5 +1,7 @@
 export type Priority = 'low' | 'medium' | 'high'
 export type TaskStatus = 'open' | 'completed'
+export type Reminder = { at: string | null; sentAt: string | null }
+export type Recurrence = { frequency: 'daily' | 'weekly' | 'monthly'; interval: number; daysOfWeek: string[] | null; endAt: string | null }
 
 export type Task = {
   id: string
@@ -12,6 +14,8 @@ export type Task = {
   listId: string | null
   createdAt: string
   updatedAt: string
+  reminder: Reminder | null
+  recurrence: Recurrence | null
 }
 
 export type TaskQueryResponse = { items: Task[]; total: number }
@@ -62,11 +66,11 @@ export function createList(input: { name: string; color: string }) {
   return request<TaskList>('/api/lists', { method: 'POST', body: JSON.stringify(input) })
 }
 
-export function createTask(input: { title: string; dueAt: string | null; priority: Priority; description?: string; listId?: string | null }) {
+export function createTask(input: { title: string; dueAt: string | null; priority: Priority; description?: string; listId?: string | null; reminder?: { at: string } | null; recurrence?: { frequency: 'daily' | 'weekly' | 'monthly'; interval: number; daysOfWeek?: string[]; endAt?: string } | null }) {
   return request<Task>('/api/tasks', { method: 'POST', body: JSON.stringify(input) })
 }
 
-export function updateTask(id: string, input: { title: string; dueAt: string | null; priority: Priority; description: string; listId: string | null }) {
+export function updateTask(id: string, input: { title: string; dueAt: string | null; priority: Priority; description: string; listId: string | null; reminder: { at: string } | null; recurrence: { frequency: 'daily' | 'weekly' | 'monthly'; interval: number; daysOfWeek?: string[]; endAt?: string } | null }) {
   return request<Task>(`/api/tasks/${id}`, { method: 'PATCH', body: JSON.stringify(input) })
 }
 

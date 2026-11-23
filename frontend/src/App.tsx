@@ -13,6 +13,8 @@ function Icon({ name }: { name: 'plus' | 'chevron-left' | 'chevron-right' | 'sea
   return <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg>
 }
 
+const recurrenceDayOptions = [['monday', 'M'], ['tuesday', 'T'], ['wednesday', 'W'], ['thursday', 'T'], ['friday', 'F'], ['saturday', 'S'], ['sunday', 'S']] as const
+
 function AuthScreen({ onAuthenticated }: { onAuthenticated: () => void }) {
   const [mode, setMode] = useState<'login' | 'register'>('login')
   const [username, setUsername] = useState('')
@@ -71,7 +73,7 @@ function ListModal({ onClose, onCreated }: { onClose: () => void; onCreated: (li
 }
 
 function TaskButton({ task, lists, onOpen }: { task: Task; lists: TaskList[]; onOpen: (task: Task) => void }) {
-  return <button className={`task-pill priority-${task.priority} ${task.status === 'completed' ? 'is-complete' : ''}`} style={{ borderLeftColor: lists.find(list => list.id === task.listId)?.color ?? undefined }} title={task.title} onClick={() => onOpen(task)}><span className="task-mark" />{task.title}</button>
+  return <button className={`task-pill priority-${task.priority} ${task.status === 'completed' ? 'is-complete' : ''}`} style={{ borderLeftColor: lists.find(list => list.id === task.listId)?.color ?? undefined }} title={`${task.title}${task.reminder?.at ? ' • reminder set' : ''}`} onClick={() => onOpen(task)}><span className="task-mark" />{task.title}{task.reminder?.at && <span className="reminder-mark" aria-label="Reminder set">•</span>}</button>
 }
 
 function WeekView({ days, tasksFor, lists, onCreate, onOpen }: { days: Date[]; tasksFor: (day: Date) => Task[]; lists: TaskList[]; onCreate: (day: Date) => void; onOpen: (task: Task) => void }) {
@@ -92,6 +94,13 @@ function TaskModal({ onClose, onSaved, onDeleted, selectedDate, task, lists }: {
   const [priority, setPriority] = useState<Priority>(task?.priority ?? 'medium')
   const [description, setDescription] = useState(task?.description ?? '')
   const [listId, setListId] = useState(task?.listId ?? '')
+  const [reminderEnabled, setReminderEnabled] = useState(Boolean(task?.reminder?.at))
+  const [reminderAt, setReminderAt] = useState(task?.reminder?.at ? toLocalInputValue(new Date(task.reminder.at)) : '')
+  const [recurrenceEnabled, setRecurrenceEnabled] = useState(Boolean(task?.recurrence))
+  const [recurrenceFrequency, setRecurrenceFrequency] = useState<'daily' | 'weekly' | 'monthly'>(task?.recurrence?.frequency ?? 'weekly')
+  const [recurrenceInterval, setRecurrenceInterval] = useState(task?.recurrence?.interval ?? 1)
+  const [recurrenceDays, setRecurrenceDays] = useState<string[]>(task?.recurrence?.daysOfWeek ?? [])
+  const [recurrenceEndAt, setRecurrenceEndAt] = useState(task?.recurrence?.endAt ? toLocalInputValue(new Date(task.recurrence.endAt)) : '')
   const [status, setStatus] = useState(task?.status ?? 'open')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -104,9 +113,14 @@ function TaskModal({ onClose, onSaved, onDeleted, selectedDate, task, lists }: {
   }, [onClose])
 
   async function submit(event: FormEvent) {
-    event.preventDefault(); setError(''); setBusy(true)
+    event.preventDefault(); setError('')
+    if (recurrenceEnabled && !dueAt) { setError('Add a due date before setting a repeat.'); return }
+    if (recurrenceEnabled && (!Number.isInteger(recurrenceInterval) || recurrenceInterval < 1 || recurrenceInterval > 365)) { setError('Repeat interval must be between 1 and 365.'); return }
+    if (recurrenceEnabled && recurrenceFrequency === 'weekly' && recurrenceDays.length === 0) { setError('Choose at least one day for a weekly repeat.'); return }
+    if (recurrenceEnabled && recurrenceEndAt && new Date(recurrenceEndAt) < new Date(dueAt)) { setError('The repeat end must be on or after the due date.'); return }
+    setBusy(true)
     try {
-      const payload = { title, priority, description, dueAt: dueAt ? new Date(dueAt).toISOString() : null, listId: listId || null }
+      const payload = { title, priority, description, dueAt: dueAt ? new Date(dueAt).toISOString() : null, listId: listId || null, reminder: reminderEnabled && reminderAt ? { at: new Date(reminderAt).toISOString() } : null, recurrence: recurrenceEnabled ? { frequency: recurrenceFrequency, interval: recurrenceInterval, ...(recurrenceFrequency === 'weekly' ? { daysOfWeek: recurrenceDays } : {}), ...(recurrenceEndAt ? { endAt: new Date(recurrenceEndAt).toISOString() } : {}) } : null }
       const saved = task ? await updateTask(task.id, payload) : await createTask(payload)
       onSaved(saved); onClose()
     }
@@ -134,6 +148,10 @@ function TaskModal({ onClose, onSaved, onDeleted, selectedDate, task, lists }: {
         <label>Title<input name="title" autoFocus value={title} onChange={event => setTitle(event.target.value)} placeholder="What needs your attention?" maxLength={200} required /></label>
         <div className="form-row"><label>When<input type="datetime-local" value={dueAt} onChange={event => setDueAt(event.target.value)} /></label><label>Priority<select value={priority} onChange={event => setPriority(event.target.value as Priority)}><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select></label></div>
         <label>List<select value={listId} onChange={event => setListId(event.target.value)}><option value="">No list</option>{lists.map(list => <option value={list.id} key={list.id}>{list.name}</option>)}</select></label>
+        <label className="checkbox-label"><input type="checkbox" checked={reminderEnabled} onChange={event => { setReminderEnabled(event.target.checked); if (event.target.checked && !reminderAt) setReminderAt(dueAt ? toLocalInputValue(new Date(new Date(dueAt).getTime() - 15 * 60_000)) : '') }} /><span>Set a reminder</span></label>
+        {reminderEnabled && <label>Reminder time<input type="datetime-local" value={reminderAt} onChange={event => setReminderAt(event.target.value)} required /></label>}
+        <label className="checkbox-label"><input type="checkbox" checked={recurrenceEnabled} onChange={event => { setRecurrenceEnabled(event.target.checked); if (event.target.checked && recurrenceFrequency === 'weekly' && recurrenceDays.length === 0 && dueAt) { const day = new Date(dueAt).getDay(); setRecurrenceDays([['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'][day]]) } }} /><span>Repeat this task</span></label>
+        {recurrenceEnabled && <div className="repeat-settings"><div className="form-row"><label>Repeats<select value={recurrenceFrequency} onChange={event => setRecurrenceFrequency(event.target.value as typeof recurrenceFrequency)}><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option></select></label><label>Every<input type="number" min="1" max="365" value={recurrenceInterval} onChange={event => setRecurrenceInterval(Number(event.target.value))} /></label></div>{recurrenceFrequency === 'weekly' && <fieldset className="weekday-picker"><legend>On days</legend><div>{recurrenceDayOptions.map(([value, label]) => <button type="button" className={recurrenceDays.includes(value) ? 'day-toggle selected' : 'day-toggle'} key={value} onClick={() => setRecurrenceDays(current => current.includes(value) ? current.filter(day => day !== value) : [...current, value])} aria-label={value} aria-pressed={recurrenceDays.includes(value)}>{label}</button>)}</div></fieldset>}<label>Ends at <span className="optional">Optional</span><input type="datetime-local" value={recurrenceEndAt} onChange={event => setRecurrenceEndAt(event.target.value)} /></label></div>}
         <label>Description <span className="optional">Optional</span><textarea value={description} onChange={event => setDescription(event.target.value)} rows={3} maxLength={5000} placeholder="A little context…" /></label>
         {error && <p className="form-error" role="alert">{error}</p>}
         <div className="modal-actions"><div className="modal-danger">{task && (confirmingDelete ? <span className="delete-confirm"><span>Delete this task?</span><button type="button" className="text-button" onClick={() => setConfirmingDelete(false)} disabled={busy}>Keep</button><button type="button" className="text-button danger-button" onClick={remove} disabled={busy}>Delete</button></span> : <button type="button" className="text-button danger-button" onClick={() => setConfirmingDelete(true)} disabled={busy}>Delete</button>)}</div><button type="button" className="button button-quiet" onClick={onClose}>Cancel</button>{task && <button type="button" className="button button-quiet" onClick={changeStatus} disabled={busy}>{status === 'completed' ? 'Reopen' : 'Complete'}</button>}<button className="button button-primary" disabled={busy}>{busy ? 'Saving…' : task ? 'Save changes' : 'Save task'}</button></div>
@@ -197,7 +215,7 @@ function Calendar({ onLogout }: { onLogout: () => void }) {
       {error && <div className="state-message error-state" role="alert"><strong>We couldn’t load this month.</strong><span>{error}</span><button className="text-button" onClick={() => setMonth(new Date(month))}>Try again</button></div>}
       {view === 'month' && <section id="calendar-grid" className={`calendar-grid ${loading ? 'is-loading' : ''}`} role="grid" aria-label={`${monthLabel(month)} calendar`} aria-busy={loading}>
         {['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].map(day => <div className="weekday" key={day}>{day.slice(0, 3)}<span className="weekday-full">{day.slice(3)}</span></div>)}
-        {days.map(day => { const dayTasks = tasksFor(day); const inMonth = day.getMonth() === month.getMonth(); return <div className={`day-cell ${inMonth ? '' : 'outside-month'} ${sameDay(day, today) ? 'today' : ''}`} key={day.toISOString()} role="gridcell" tabIndex={0} onClick={() => openCreate(day)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openCreate(day) } }} aria-label={`${weekdayLabel(day)}, ${dayLabel(day)}${dayTasks.length ? `, ${dayTasks.length} tasks` : ''}`}><span className="day-number">{dayLabel(day)}</span><span className="day-tasks">{dayTasks.slice(0, 4).map(task => <button className={`task-pill priority-${task.priority} ${task.status === 'completed' ? 'is-complete' : ''}`} style={{ borderLeftColor: lists.find(list => list.id === task.listId)?.color ?? undefined }} title={task.title} key={task.id} onClick={event => { event.stopPropagation(); openTask(task) }}><span className="task-mark" />{task.title}</button>)}{dayTasks.length > 4 && <span className="more-tasks">+{dayTasks.length - 4} more</span>}</span></div> })}
+        {days.map(day => { const dayTasks = tasksFor(day); const inMonth = day.getMonth() === month.getMonth(); return <div className={`day-cell ${inMonth ? '' : 'outside-month'} ${sameDay(day, today) ? 'today' : ''}`} key={day.toISOString()} role="gridcell" tabIndex={0} onClick={() => openCreate(day)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openCreate(day) } }} aria-label={`${weekdayLabel(day)}, ${dayLabel(day)}${dayTasks.length ? `, ${dayTasks.length} tasks` : ''}`}><span className="day-number">{dayLabel(day)}</span><span className="day-tasks">{dayTasks.slice(0, 4).map(task => <button className={`task-pill priority-${task.priority} ${task.status === 'completed' ? 'is-complete' : ''}`} style={{ borderLeftColor: lists.find(list => list.id === task.listId)?.color ?? undefined }} title={`${task.title}${task.reminder?.at ? ' • reminder set' : ''}`} key={task.id} onClick={event => { event.stopPropagation(); openTask(task) }}><span className="task-mark" />{task.title}{task.reminder?.at && <span className="reminder-mark" aria-label="Reminder set">•</span>}</button>)}{dayTasks.length > 4 && <span className="more-tasks">+{dayTasks.length - 4} more</span>}</span></div> })}
       </section>}
       {view === 'week' && <div id="calendar-grid" className={loading ? 'is-loading' : ''}><WeekView days={currentWeek} tasksFor={tasksFor} lists={lists} onCreate={openCreate} onOpen={openTask} /></div>}
       {view === 'agenda' && <div id="calendar-grid" className={loading ? 'is-loading' : ''}><AgendaView tasks={query.trim() ? agendaTasks.filter(task => `${task.title} ${task.description}`.toLowerCase().includes(query.toLowerCase())) : agendaTasks} lists={lists} emptyDate={monthStart(month)} onCreate={openCreate} onOpen={openTask} /></div>}
