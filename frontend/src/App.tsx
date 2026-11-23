@@ -72,13 +72,58 @@ function ListModal({ onClose, onCreated }: { onClose: () => void; onCreated: (li
   </div>
 }
 
-function TaskButton({ task, lists, onOpen }: { task: Task; lists: TaskList[]; onOpen: (task: Task) => void }) {
-  return <button className={`task-pill priority-${task.priority} ${task.status === 'completed' ? 'is-complete' : ''}`} style={{ borderLeftColor: lists.find(list => list.id === task.listId)?.color ?? undefined }} title={`${task.title}${task.reminder?.at ? ' • reminder set' : ''}`} onClick={() => onOpen(task)}><span className="task-mark" />{task.title}{task.reminder?.at && <span className="reminder-mark" aria-label="Reminder set">•</span>}</button>
-}
-
 function WeekView({ days, tasksFor, lists, onCreate, onOpen }: { days: Date[]; tasksFor: (day: Date) => Task[]; lists: TaskList[]; onCreate: (day: Date) => void; onOpen: (task: Task) => void }) {
-  const today = new Date()
-  return <section className="week-grid" aria-label="Week calendar">{days.map(day => { const dayTasks = tasksFor(day); return <div className={`week-column ${sameDay(day, today) ? 'is-today' : ''}`} key={day.toISOString()}><header className="week-column-header"><div><span className="weekday-name">{weekdayLabel(day)}</span><strong>{dayLabel(day)}</strong></div><button className="small-add" onClick={() => onCreate(day)} aria-label={`Add task on ${weekdayLabel(day)} ${dayLabel(day)}`}><Icon name="plus" /></button></header><div className="week-column-tasks">{dayTasks.map(task => <TaskButton key={task.id} task={task} lists={lists} onOpen={onOpen} />)}{dayTasks.length === 0 && <button className="week-empty" onClick={() => onCreate(day)}>Open day</button>}</div></div> })}</section>
+  const [now, setNow] = useState(new Date())
+  const startHour = 6
+  const endHour = 23
+  const hourHeight = 64
+  const eventDurationMinutes = 45
+  const eventHeight = eventDurationMinutes / 60 * hourHeight
+  const totalGridHeight = (endHour - startHour) * hourHeight
+  const hours = Array.from({ length: endHour - startHour }, (_, index) => startHour + index)
+  const listColors = useMemo(() => new Map(lists.map(list => [list.id, list.color ?? '#88978c'])), [lists])
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(new Date()), 60_000)
+    return () => window.clearInterval(timer)
+  }, [])
+
+  function layoutEvents(day: Date) {
+    const scheduled = tasksFor(day).flatMap(task => {
+      const date = taskDay(task.dueAt)
+      const minutes = date ? date.getHours() * 60 + date.getMinutes() : 0
+      return date ? [{ task, minutes, overflow: minutes < startHour * 60 ? 'before' : minutes >= endHour * 60 ? 'after' : null }] : []
+    }).sort((a, b) => a.minutes - b.minutes)
+    const clusters: typeof scheduled[] = []
+    let cluster: typeof scheduled = []
+    let clusterEnd = -Infinity
+    scheduled.forEach(entry => {
+      if (cluster.length && entry.minutes >= clusterEnd) { clusters.push(cluster); cluster = [] }
+      cluster.push(entry)
+      clusterEnd = Math.max(clusterEnd, entry.minutes + eventDurationMinutes)
+    })
+    if (cluster.length) clusters.push(cluster)
+
+    return clusters.flatMap(group => {
+      const laneEnds: number[] = []
+      const assigned = group.map(entry => {
+        let lane = 0
+        while (laneEnds[lane] !== undefined && laneEnds[lane] > entry.minutes) lane += 1
+        laneEnds[lane] = entry.minutes + eventDurationMinutes
+        return { ...entry, lane }
+      })
+      const laneCount = laneEnds.length
+      return assigned.map(entry => ({ ...entry, laneCount }))
+    })
+  }
+
+  const nowMinutes = now.getHours() * 60 + now.getMinutes()
+  const nowTop = (nowMinutes - startHour * 60) / 60 * hourHeight
+  const nowVisible = nowMinutes >= startHour * 60 && nowMinutes <= endHour * 60
+
+  return <section className="week-view" aria-label="Week calendar">
+    <div className="week-scroll"><div className="week-days-header"><div className="week-time-gutter" />{days.map(day => <div className={`week-date-header ${sameDay(day, now) ? 'is-today' : ''}`} key={day.toISOString()}><span>{weekdayLabel(day)}</span><strong>{dayLabel(day)}</strong>{sameDay(day, now) && <em>Today</em>}<button onClick={() => onCreate(day)} aria-label={`Add task on ${weekdayLabel(day)} ${dayLabel(day)}`}><Icon name="plus" /></button></div>)}</div><div className="week-body"><div className="week-time-axis">{hours.map(hour => <span key={hour}>{`${String(hour).padStart(2, '0')}:00`}</span>)}</div><div className="week-day-columns">{days.map(day => { const events = layoutEvents(day); return <div className={`week-day-column ${sameDay(day, now) ? 'is-today' : ''}`} key={day.toISOString()}><div className="week-hour-lines">{hours.map(hour => <span key={hour} />)}</div>{sameDay(day, now) && nowVisible && <div className="now-line" style={{ top: nowTop }}><i /> </div>}<div className="week-event-layer">{events.map(({ task, minutes, lane, laneCount, overflow }) => { const top = Math.max(0, Math.min(totalGridHeight - eventHeight, (minutes - startHour * 60) / 60 * hourHeight)); const color = listColors.get(task.listId ?? '') ?? '#88978c'; return <button className={`week-event priority-${task.priority} ${task.status === 'completed' ? 'is-complete' : ''} ${overflow ? 'is-overflow' : ''}`} style={{ top, height: eventHeight, left: `calc(${lane * 100 / laneCount}% + 5px)`, width: `calc(${100 / laneCount}% - 10px)`, borderLeftColor: color }} key={task.id} onClick={() => onOpen(task)} title={task.title}><span>{timeLabel(new Date(task.dueAt!))}</span><strong>{task.title}</strong>{overflow === 'before' && <small>Earlier</small>}{overflow === 'after' && <small>Later</small>}{!overflow && task.reminder?.at && <small>Reminder set</small>}</button> })}</div></div> })}</div></div></div>
+  </section>
 }
 
 function AgendaView({ tasks, lists, emptyDate, onCreate, onOpen }: { tasks: Task[]; lists: TaskList[]; emptyDate: Date; onCreate: (day: Date) => void; onOpen: (task: Task) => void }) {
@@ -162,7 +207,7 @@ function TaskModal({ onClose, onSaved, onDeleted, selectedDate, task, lists }: {
 
 function Calendar({ onLogout }: { onLogout: () => void }) {
   const [month, setMonth] = useState(monthStart(new Date()))
-  const [view, setView] = useState<'month' | 'week' | 'agenda'>('month')
+  const [view, setView] = useState<'month' | 'week' | 'agenda'>('week')
   const [tasks, setTasks] = useState<Task[]>([])
   const [lists, setLists] = useState<TaskList[]>([])
   const [listFilter, setListFilter] = useState('')
@@ -212,7 +257,7 @@ function Calendar({ onLogout }: { onLogout: () => void }) {
     <main className="calendar-main">
       <header className="topbar"><div className="topbar-title"><span className="eyebrow">Calendar</span><h1>{heading}</h1></div><div className="topbar-actions"><label className="search-field"><Icon name="search" /><span className="sr-only">Search tasks</span><input name="search" autoComplete="off" value={query} onChange={event => setQuery(event.target.value)} placeholder="Search…" /></label><button className="button button-quiet today-button" onClick={() => setMonth(today)}>Today</button><button className="button button-primary add-button" onClick={() => openCreate(today)}><Icon name="plus" /><span>Add task</span></button></div></header>
       <section className="calendar-toolbar" aria-label="Calendar controls"><div className="month-nav"><button className="icon-button" onClick={() => movePeriod(-1)} aria-label="Previous period"><Icon name="chevron-left" /></button><button className="icon-button" onClick={() => movePeriod(1)} aria-label="Next period"><Icon name="chevron-right" /></button></div><div className="calendar-toolbar-right"><div className="view-switcher" role="group" aria-label="Calendar view"><button className={view === 'month' ? 'selected' : ''} onClick={() => setView('month')}>Month</button><button className={view === 'week' ? 'selected' : ''} onClick={() => setView('week')}>Week</button><button className={view === 'agenda' ? 'selected' : ''} onClick={() => setView('agenda')}>Agenda</button></div><select className="mobile-list-filter" aria-label="Filter by list" value={listFilter} onChange={event => setListFilter(event.target.value)}><option value="">All lists</option>{lists.map(list => <option key={list.id} value={list.id}>{list.name}</option>)}</select><p className="calendar-hint">{tasks.length ? `${tasks.length} task${tasks.length === 1 ? '' : 's'} this view` : 'Your calendar at a glance'}</p></div></section>
-      {error && <div className="state-message error-state" role="alert"><strong>We couldn’t load this month.</strong><span>{error}</span><button className="text-button" onClick={() => setMonth(new Date(month))}>Try again</button></div>}
+      {error && <div className="state-message error-state" role="alert"><strong>We couldn’t load this {view === 'week' ? 'week' : view === 'agenda' ? 'agenda' : 'month'}.</strong><span>{error}</span><button className="text-button" onClick={() => setMonth(new Date(month))}>Try again</button></div>}
       {view === 'month' && <section id="calendar-grid" className={`calendar-grid ${loading ? 'is-loading' : ''}`} role="grid" aria-label={`${monthLabel(month)} calendar`} aria-busy={loading}>
         {['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].map(day => <div className="weekday" key={day}>{day.slice(0, 3)}<span className="weekday-full">{day.slice(3)}</span></div>)}
         {days.map(day => { const dayTasks = tasksFor(day); const inMonth = day.getMonth() === month.getMonth(); return <div className={`day-cell ${inMonth ? '' : 'outside-month'} ${sameDay(day, today) ? 'today' : ''}`} key={day.toISOString()} role="gridcell" tabIndex={0} onClick={() => openCreate(day)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openCreate(day) } }} aria-label={`${weekdayLabel(day)}, ${dayLabel(day)}${dayTasks.length ? `, ${dayTasks.length} tasks` : ''}`}><span className="day-number">{dayLabel(day)}</span><span className="day-tasks">{dayTasks.slice(0, 4).map(task => <button className={`task-pill priority-${task.priority} ${task.status === 'completed' ? 'is-complete' : ''}`} style={{ borderLeftColor: lists.find(list => list.id === task.listId)?.color ?? undefined }} title={`${task.title}${task.reminder?.at ? ' • reminder set' : ''}`} key={task.id} onClick={event => { event.stopPropagation(); openTask(task) }}><span className="task-mark" />{task.title}{task.reminder?.at && <span className="reminder-mark" aria-label="Reminder set">•</span>}</button>)}{dayTasks.length > 4 && <span className="more-tasks">+{dayTasks.length - 4} more</span>}</span></div> })}
