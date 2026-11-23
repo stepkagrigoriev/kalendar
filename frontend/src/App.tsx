@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react'
 import { authenticate, createList, createTask, deleteTask, getLists, getTasks, getToken, Priority, setTaskStatus, setToken, Task, TaskList, updateTask } from './api'
-import { calendarDays, dayLabel, monthLabel, monthStart, nextMonth, previousMonth, sameDay, taskDay, toLocalInputValue, weekdayLabel } from './date'
+import { addDays, agendaDateLabel, calendarDays, dateRangeLabel, dayLabel, monthLabel, monthStart, nextMonth, previousMonth, sameDay, taskDay, timeLabel, toLocalInputValue, weekDays, weekdayLabel } from './date'
 
 function Icon({ name }: { name: 'plus' | 'chevron-left' | 'chevron-right' | 'search' | 'logout' }) {
   const paths = {
@@ -70,6 +70,22 @@ function ListModal({ onClose, onCreated }: { onClose: () => void; onCreated: (li
   </div>
 }
 
+function TaskButton({ task, lists, onOpen }: { task: Task; lists: TaskList[]; onOpen: (task: Task) => void }) {
+  return <button className={`task-pill priority-${task.priority} ${task.status === 'completed' ? 'is-complete' : ''}`} style={{ borderLeftColor: lists.find(list => list.id === task.listId)?.color ?? undefined }} title={task.title} onClick={() => onOpen(task)}><span className="task-mark" />{task.title}</button>
+}
+
+function WeekView({ days, tasksFor, lists, onCreate, onOpen }: { days: Date[]; tasksFor: (day: Date) => Task[]; lists: TaskList[]; onCreate: (day: Date) => void; onOpen: (task: Task) => void }) {
+  const today = new Date()
+  return <section className="week-grid" aria-label="Week calendar">{days.map(day => { const dayTasks = tasksFor(day); return <div className={`week-column ${sameDay(day, today) ? 'is-today' : ''}`} key={day.toISOString()}><header className="week-column-header"><div><span className="weekday-name">{weekdayLabel(day)}</span><strong>{dayLabel(day)}</strong></div><button className="small-add" onClick={() => onCreate(day)} aria-label={`Add task on ${weekdayLabel(day)} ${dayLabel(day)}`}><Icon name="plus" /></button></header><div className="week-column-tasks">{dayTasks.map(task => <TaskButton key={task.id} task={task} lists={lists} onOpen={onOpen} />)}{dayTasks.length === 0 && <button className="week-empty" onClick={() => onCreate(day)}>Open day</button>}</div></div> })}</section>
+}
+
+function AgendaView({ tasks, lists, emptyDate, onCreate, onOpen }: { tasks: Task[]; lists: TaskList[]; emptyDate: Date; onCreate: (day: Date) => void; onOpen: (task: Task) => void }) {
+  const grouped = new Map<string, { date: Date; tasks: Task[] }>()
+  tasks.filter(task => task.dueAt).sort((a, b) => new Date(a.dueAt!).getTime() - new Date(b.dueAt!).getTime()).forEach(task => { const date = taskDay(task.dueAt)!; const key = date.toDateString(); const group = grouped.get(key); if (group) group.tasks.push(task); else grouped.set(key, { date, tasks: [task] }) })
+  if (!grouped.size) return <div className="state-message empty-state agenda-empty"><strong>No scheduled tasks here.</strong><span>Add a task with a date to see it in your agenda.</span><button className="text-button" onClick={() => onCreate(emptyDate)}>Add a task</button></div>
+  return <section className="agenda-list" aria-label="Agenda">{Array.from(grouped.values()).map(group => <div className="agenda-day" key={group.date.toDateString()}><div className="agenda-date"><span className="eyebrow">{weekdayLabel(group.date)}</span><strong>{agendaDateLabel(group.date)}</strong></div><div className="agenda-tasks">{group.tasks.map(task => <button className="agenda-task" key={task.id} onClick={() => onOpen(task)}><span className="agenda-time">{timeLabel(new Date(task.dueAt!))}</span><span className={`agenda-dot priority-${task.priority}`} style={{ backgroundColor: lists.find(list => list.id === task.listId)?.color ?? undefined }} /><span className={task.status === 'completed' ? 'is-complete' : ''}>{task.title}</span><span className="agenda-list-name">{lists.find(list => list.id === task.listId)?.name ?? 'No list'}</span></button>)}</div></div>)}</section>
+}
+
 function TaskModal({ onClose, onSaved, onDeleted, selectedDate, task, lists }: { onClose: () => void; onSaved: (task: Task) => void; onDeleted: (id: string) => void; selectedDate: Date; task?: Task; lists: TaskList[] }) {
   const [title, setTitle] = useState(task?.title ?? '')
   const [dueAt, setDueAt] = useState(task?.dueAt ? toLocalInputValue(new Date(task.dueAt)) : toLocalInputValue(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate(), 9, 0)))
@@ -128,6 +144,7 @@ function TaskModal({ onClose, onSaved, onDeleted, selectedDate, task, lists }: {
 
 function Calendar({ onLogout }: { onLogout: () => void }) {
   const [month, setMonth] = useState(monthStart(new Date()))
+  const [view, setView] = useState<'month' | 'week' | 'agenda'>('month')
   const [tasks, setTasks] = useState<Task[]>([])
   const [lists, setLists] = useState<TaskList[]>([])
   const [listFilter, setListFilter] = useState('')
@@ -139,6 +156,7 @@ function Calendar({ onLogout }: { onLogout: () => void }) {
   const [query, setQuery] = useState('')
   const today = new Date()
   const days = useMemo(() => calendarDays(month), [month])
+  const currentWeek = useMemo(() => weekDays(month), [month])
 
   useEffect(() => {
     getLists().then(setLists).catch(() => setLists([]))
@@ -147,11 +165,12 @@ function Calendar({ onLogout }: { onLogout: () => void }) {
   useEffect(() => {
     let active = true
     setLoading(true); setError(''); setTasks([])
-    const from = days[0]
-    const to = new Date(days[days.length - 1]); to.setDate(to.getDate() + 1)
+    const range = view === 'month' ? days : view === 'week' ? currentWeek : [monthStart(month), nextMonth(month)]
+    const from = range[0]
+    const to = view === 'agenda' ? range[1] : addDays(range[range.length - 1], 1)
     getTasks(from, to, listFilter).then(result => { if (active) setTasks(result.items) }).catch(caught => { if (active) setError(caught instanceof Error ? caught.message : 'Could not load your calendar.') }).finally(() => active && setLoading(false))
     return () => { active = false }
-  }, [month, days, listFilter])
+  }, [month, days, currentWeek, listFilter, view])
 
   const visibleTasks = query.trim() ? tasks.filter(task => `${task.title} ${task.description}`.toLowerCase().includes(query.toLowerCase())) : tasks
   const tasksFor = (day: Date) => visibleTasks.filter(task => { const date = taskDay(task.dueAt); return date && sameDay(date, day) })
@@ -161,6 +180,9 @@ function Calendar({ onLogout }: { onLogout: () => void }) {
   function addList(list: TaskList) { setLists(current => [...current, list]); setListFilter(list.id) }
   function openCreate(day: Date) { setSelectedTask(null); setModalDate(day) }
   function openTask(task: Task) { setSelectedTask(task); setModalDate(taskDay(task.dueAt) ?? new Date()) }
+  function movePeriod(amount: number) { setMonth(view === 'month' || view === 'agenda' ? (amount > 0 ? nextMonth(month) : previousMonth(month)) : addDays(month, amount * 7)) }
+  const heading = view === 'week' ? dateRangeLabel(currentWeek[0], currentWeek[6]) : monthLabel(month)
+  const agendaTasks = tasks.filter(task => { const date = taskDay(task.dueAt); return date && date.getFullYear() === month.getFullYear() && date.getMonth() === month.getMonth() })
 
   return <div className="app-shell">
     <a className="skip-link" href="#calendar-grid">Skip to calendar</a>
@@ -170,16 +192,18 @@ function Calendar({ onLogout }: { onLogout: () => void }) {
       <div className="sidebar-bottom"><div className="user-chip"><span className="avatar">{(localStorage.getItem('kalendar.username') ?? 'K').slice(0, 1).toUpperCase()}</span><span className="user-name">Your calendar</span><button className="icon-button sidebar-logout" onClick={onLogout} aria-label="Sign out"><Icon name="logout" /></button></div></div>
     </aside>
     <main className="calendar-main">
-      <header className="topbar"><div className="topbar-title"><span className="eyebrow">Calendar</span><h1>{monthLabel(month)}</h1></div><div className="topbar-actions"><label className="search-field"><Icon name="search" /><span className="sr-only">Search tasks</span><input name="search" autoComplete="off" value={query} onChange={event => setQuery(event.target.value)} placeholder="Search…" /></label><button className="button button-quiet today-button" onClick={() => setMonth(monthStart(today))}>Today</button><button className="button button-primary add-button" onClick={() => openCreate(today)}><Icon name="plus" /><span>Add task</span></button></div></header>
-      <section className="calendar-toolbar" aria-label="Calendar controls"><div className="month-nav"><button className="icon-button" onClick={() => setMonth(previousMonth(month))} aria-label="Previous month"><Icon name="chevron-left" /></button><button className="icon-button" onClick={() => setMonth(nextMonth(month))} aria-label="Next month"><Icon name="chevron-right" /></button></div><div className="calendar-toolbar-right"><select className="mobile-list-filter" aria-label="Filter by list" value={listFilter} onChange={event => setListFilter(event.target.value)}><option value="">All lists</option>{lists.map(list => <option key={list.id} value={list.id}>{list.name}</option>)}</select><p className="calendar-hint">{tasks.length ? `${tasks.length} task${tasks.length === 1 ? '' : 's'} this view` : 'Your month at a glance'}</p></div></section>
+      <header className="topbar"><div className="topbar-title"><span className="eyebrow">Calendar</span><h1>{heading}</h1></div><div className="topbar-actions"><label className="search-field"><Icon name="search" /><span className="sr-only">Search tasks</span><input name="search" autoComplete="off" value={query} onChange={event => setQuery(event.target.value)} placeholder="Search…" /></label><button className="button button-quiet today-button" onClick={() => setMonth(today)}>Today</button><button className="button button-primary add-button" onClick={() => openCreate(today)}><Icon name="plus" /><span>Add task</span></button></div></header>
+      <section className="calendar-toolbar" aria-label="Calendar controls"><div className="month-nav"><button className="icon-button" onClick={() => movePeriod(-1)} aria-label="Previous period"><Icon name="chevron-left" /></button><button className="icon-button" onClick={() => movePeriod(1)} aria-label="Next period"><Icon name="chevron-right" /></button></div><div className="calendar-toolbar-right"><div className="view-switcher" role="group" aria-label="Calendar view"><button className={view === 'month' ? 'selected' : ''} onClick={() => setView('month')}>Month</button><button className={view === 'week' ? 'selected' : ''} onClick={() => setView('week')}>Week</button><button className={view === 'agenda' ? 'selected' : ''} onClick={() => setView('agenda')}>Agenda</button></div><select className="mobile-list-filter" aria-label="Filter by list" value={listFilter} onChange={event => setListFilter(event.target.value)}><option value="">All lists</option>{lists.map(list => <option key={list.id} value={list.id}>{list.name}</option>)}</select><p className="calendar-hint">{tasks.length ? `${tasks.length} task${tasks.length === 1 ? '' : 's'} this view` : 'Your calendar at a glance'}</p></div></section>
       {error && <div className="state-message error-state" role="alert"><strong>We couldn’t load this month.</strong><span>{error}</span><button className="text-button" onClick={() => setMonth(new Date(month))}>Try again</button></div>}
-      <section id="calendar-grid" className={`calendar-grid ${loading ? 'is-loading' : ''}`} role="grid" aria-label={`${monthLabel(month)} calendar`} aria-busy={loading}>
+      {view === 'month' && <section id="calendar-grid" className={`calendar-grid ${loading ? 'is-loading' : ''}`} role="grid" aria-label={`${monthLabel(month)} calendar`} aria-busy={loading}>
         {['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].map(day => <div className="weekday" key={day}>{day.slice(0, 3)}<span className="weekday-full">{day.slice(3)}</span></div>)}
         {days.map(day => { const dayTasks = tasksFor(day); const inMonth = day.getMonth() === month.getMonth(); return <div className={`day-cell ${inMonth ? '' : 'outside-month'} ${sameDay(day, today) ? 'today' : ''}`} key={day.toISOString()} role="gridcell" tabIndex={0} onClick={() => openCreate(day)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openCreate(day) } }} aria-label={`${weekdayLabel(day)}, ${dayLabel(day)}${dayTasks.length ? `, ${dayTasks.length} tasks` : ''}`}><span className="day-number">{dayLabel(day)}</span><span className="day-tasks">{dayTasks.slice(0, 4).map(task => <button className={`task-pill priority-${task.priority} ${task.status === 'completed' ? 'is-complete' : ''}`} style={{ borderLeftColor: lists.find(list => list.id === task.listId)?.color ?? undefined }} title={task.title} key={task.id} onClick={event => { event.stopPropagation(); openTask(task) }}><span className="task-mark" />{task.title}</button>)}{dayTasks.length > 4 && <span className="more-tasks">+{dayTasks.length - 4} more</span>}</span></div> })}
-      </section>
+      </section>}
+      {view === 'week' && <div id="calendar-grid" className={loading ? 'is-loading' : ''}><WeekView days={currentWeek} tasksFor={tasksFor} lists={lists} onCreate={openCreate} onOpen={openTask} /></div>}
+      {view === 'agenda' && <div id="calendar-grid" className={loading ? 'is-loading' : ''}><AgendaView tasks={query.trim() ? agendaTasks.filter(task => `${task.title} ${task.description}`.toLowerCase().includes(query.toLowerCase())) : agendaTasks} lists={lists} emptyDate={monthStart(month)} onCreate={openCreate} onOpen={openTask} /></div>}
       {loading && <div className="loading-line" aria-live="polite">Loading your calendar…</div>}
       {!loading && !error && query.trim() && visibleTasks.length === 0 && <div className="state-message empty-state"><strong>No tasks match “{query}”.</strong><span>Try a different word or clear your search.</span><button className="text-button" onClick={() => setQuery('')}>Clear search</button></div>}
-      {!loading && !error && !query.trim() && tasks.length === 0 && <div className="state-message empty-state"><strong>This month is still open.</strong><span>Add a task to give the days ahead a shape.</span><button className="text-button" onClick={() => openCreate(monthStart(month))}>Add your first task</button></div>}
+      {!loading && !error && !query.trim() && tasks.length === 0 && view === 'month' && <div className="state-message empty-state"><strong>This month is still open.</strong><span>Add a task to give the days ahead a shape.</span><button className="text-button" onClick={() => openCreate(monthStart(month))}>Add your first task</button></div>}
     </main>
     {modalDate && <TaskModal task={selectedTask ?? undefined} lists={lists} selectedDate={modalDate} onClose={() => { setModalDate(null); setSelectedTask(null) }} onSaved={saveTask} onDeleted={removeTask} />}
     {listModalOpen && <ListModal onClose={() => setListModalOpen(false)} onCreated={addList} />}
