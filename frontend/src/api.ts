@@ -38,7 +38,13 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (init.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
   const token = getToken()
   if (token) headers.set('Authorization', `Bearer ${token}`)
-  const response = await fetch(path, { ...init, headers })
+  let response: Response
+  try {
+    response = await fetch(path, { ...init, headers })
+  } catch {
+    throw new Error('Cannot reach the calendar server. Start the backend and try again.')
+  }
+  if (response.status === 401 && typeof window !== 'undefined') window.dispatchEvent(new Event('kalendar:unauthorized'))
   if (!response.ok) {
     const body = await response.json().catch(() => null) as { title?: string; errors?: Record<string, string[]> } | null
     const message = body?.title ?? Object.values(body?.errors ?? {})[0]?.[0] ?? `Request failed (${response.status})`

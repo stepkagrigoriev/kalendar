@@ -217,8 +217,8 @@ function Calendar({ onLogout }: { onLogout: () => void }) {
         {['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].map(day => <div className="weekday" key={day}>{day.slice(0, 3)}<span className="weekday-full">{day.slice(3)}</span></div>)}
         {days.map(day => { const dayTasks = tasksFor(day); const inMonth = day.getMonth() === month.getMonth(); return <div className={`day-cell ${inMonth ? '' : 'outside-month'} ${sameDay(day, today) ? 'today' : ''}`} key={day.toISOString()} role="gridcell" tabIndex={0} onClick={() => openCreate(day)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openCreate(day) } }} aria-label={`${weekdayLabel(day)}, ${dayLabel(day)}${dayTasks.length ? `, ${dayTasks.length} tasks` : ''}`}><span className="day-number">{dayLabel(day)}</span><span className="day-tasks">{dayTasks.slice(0, 4).map(task => <button className={`task-pill priority-${task.priority} ${task.status === 'completed' ? 'is-complete' : ''}`} style={{ borderLeftColor: lists.find(list => list.id === task.listId)?.color ?? undefined }} title={`${task.title}${task.reminder?.at ? ' • reminder set' : ''}`} key={task.id} onClick={event => { event.stopPropagation(); openTask(task) }}><span className="task-mark" />{task.title}{task.reminder?.at && <span className="reminder-mark" aria-label="Reminder set">•</span>}</button>)}{dayTasks.length > 4 && <span className="more-tasks">+{dayTasks.length - 4} more</span>}</span></div> })}
       </section>}
-      {view === 'week' && <div id="calendar-grid" className={loading ? 'is-loading' : ''}><WeekView days={currentWeek} tasksFor={tasksFor} lists={lists} onCreate={openCreate} onOpen={openTask} /></div>}
-      {view === 'agenda' && <div id="calendar-grid" className={loading ? 'is-loading' : ''}><AgendaView tasks={query.trim() ? agendaTasks.filter(task => `${task.title} ${task.description}`.toLowerCase().includes(query.toLowerCase())) : agendaTasks} lists={lists} emptyDate={monthStart(month)} onCreate={openCreate} onOpen={openTask} /></div>}
+      {view === 'week' && <div id="calendar-grid" className={loading ? 'is-loading' : ''} aria-busy={loading}><WeekView days={currentWeek} tasksFor={tasksFor} lists={lists} onCreate={openCreate} onOpen={openTask} /></div>}
+      {view === 'agenda' && <div id="calendar-grid" className={loading ? 'is-loading' : ''} aria-busy={loading}><AgendaView tasks={query.trim() ? agendaTasks.filter(task => `${task.title} ${task.description}`.toLowerCase().includes(query.toLowerCase())) : agendaTasks} lists={lists} emptyDate={monthStart(month)} onCreate={openCreate} onOpen={openTask} /></div>}
       {loading && <div className="loading-line" aria-live="polite">Loading your calendar…</div>}
       {!loading && !error && query.trim() && visibleTasks.length === 0 && <div className="state-message empty-state"><strong>No tasks match “{query}”.</strong><span>Try a different word or clear your search.</span><button className="text-button" onClick={() => setQuery('')}>Clear search</button></div>}
       {!loading && !error && !query.trim() && tasks.length === 0 && view === 'month' && <div className="state-message empty-state"><strong>This month is still open.</strong><span>Add a task to give the days ahead a shape.</span><button className="text-button" onClick={() => openCreate(monthStart(month))}>Add your first task</button></div>}
@@ -230,6 +230,11 @@ function Calendar({ onLogout }: { onLogout: () => void }) {
 
 export default function App() {
   const [authenticated, setAuthenticated] = useState(Boolean(getToken()))
+  useEffect(() => {
+    const expireSession = () => { setToken(null); localStorage.removeItem('kalendar.username'); setAuthenticated(false) }
+    window.addEventListener('kalendar:unauthorized', expireSession)
+    return () => window.removeEventListener('kalendar:unauthorized', expireSession)
+  }, [])
   function logout() { setToken(null); localStorage.removeItem('kalendar.username'); setAuthenticated(false) }
   return authenticated ? <Calendar onLogout={logout} /> : <AuthScreen onAuthenticated={() => setAuthenticated(true)} />
 }
