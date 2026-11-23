@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react'
-import { authenticate, createTask, deleteTask, getTasks, getToken, Priority, setTaskStatus, setToken, Task, updateTask } from './api'
+import { authenticate, createList, createTask, deleteTask, getLists, getTasks, getToken, Priority, setTaskStatus, setToken, Task, TaskList, updateTask } from './api'
 import { calendarDays, dayLabel, monthLabel, monthStart, nextMonth, previousMonth, sameDay, taskDay, toLocalInputValue, weekdayLabel } from './date'
 
 function Icon({ name }: { name: 'plus' | 'chevron-left' | 'chevron-right' | 'search' | 'logout' }) {
@@ -51,11 +51,31 @@ function AuthScreen({ onAuthenticated }: { onAuthenticated: () => void }) {
   </main>
 }
 
-function TaskModal({ onClose, onSaved, onDeleted, selectedDate, task }: { onClose: () => void; onSaved: (task: Task) => void; onDeleted: (id: string) => void; selectedDate: Date; task?: Task }) {
+function ListModal({ onClose, onCreated }: { onClose: () => void; onCreated: (list: TaskList) => void }) {
+  const [name, setName] = useState('')
+  const [color, setColor] = useState('#B76845')
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  async function submit(event: FormEvent) {
+    event.preventDefault(); setError(''); setBusy(true)
+    try { const list = await createList({ name, color }); onCreated(list); onClose() }
+    catch (caught) { setError(caught instanceof Error ? caught.message : 'Could not create list.') }
+    finally { setBusy(false) }
+  }
+  return <div className="modal-backdrop" role="presentation" onMouseDown={event => event.target === event.currentTarget && onClose()}>
+    <section className="modal compact-modal" role="dialog" aria-modal="true" aria-labelledby="list-modal-title">
+      <div className="modal-header"><div><p className="eyebrow">New list</p><h2 id="list-modal-title">Give it a place.</h2></div><button className="icon-button" aria-label="Close" onClick={onClose}>×</button></div>
+      <form onSubmit={submit} className="task-form"><label>Name<input name="list-name" autoFocus value={name} onChange={event => setName(event.target.value)} placeholder="e.g. Personal…" maxLength={100} required /></label><label>Color<div className="color-input"><input aria-label="List color" type="color" value={color} onChange={event => setColor(event.target.value.toUpperCase())} /><span>{color}</span></div></label>{error && <p className="form-error" role="alert">{error}</p>}<div className="modal-actions"><div className="modal-danger" /><button type="button" className="button button-quiet" onClick={onClose}>Cancel</button><button className="button button-primary" disabled={busy}>{busy ? 'Saving…' : 'Create list'}</button></div></form>
+    </section>
+  </div>
+}
+
+function TaskModal({ onClose, onSaved, onDeleted, selectedDate, task, lists }: { onClose: () => void; onSaved: (task: Task) => void; onDeleted: (id: string) => void; selectedDate: Date; task?: Task; lists: TaskList[] }) {
   const [title, setTitle] = useState(task?.title ?? '')
   const [dueAt, setDueAt] = useState(task?.dueAt ? toLocalInputValue(new Date(task.dueAt)) : toLocalInputValue(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate(), 9, 0)))
   const [priority, setPriority] = useState<Priority>(task?.priority ?? 'medium')
   const [description, setDescription] = useState(task?.description ?? '')
+  const [listId, setListId] = useState(task?.listId ?? '')
   const [status, setStatus] = useState(task?.status ?? 'open')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -70,7 +90,7 @@ function TaskModal({ onClose, onSaved, onDeleted, selectedDate, task }: { onClos
   async function submit(event: FormEvent) {
     event.preventDefault(); setError(''); setBusy(true)
     try {
-      const payload = { title, priority, description, dueAt: dueAt ? new Date(dueAt).toISOString() : null }
+      const payload = { title, priority, description, dueAt: dueAt ? new Date(dueAt).toISOString() : null, listId: listId || null }
       const saved = task ? await updateTask(task.id, payload) : await createTask(payload)
       onSaved(saved); onClose()
     }
@@ -97,6 +117,7 @@ function TaskModal({ onClose, onSaved, onDeleted, selectedDate, task }: { onClos
       <form onSubmit={submit} className="task-form">
         <label>Title<input name="title" autoFocus value={title} onChange={event => setTitle(event.target.value)} placeholder="What needs your attention?" maxLength={200} required /></label>
         <div className="form-row"><label>When<input type="datetime-local" value={dueAt} onChange={event => setDueAt(event.target.value)} /></label><label>Priority<select value={priority} onChange={event => setPriority(event.target.value as Priority)}><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select></label></div>
+        <label>List<select value={listId} onChange={event => setListId(event.target.value)}><option value="">No list</option>{lists.map(list => <option value={list.id} key={list.id}>{list.name}</option>)}</select></label>
         <label>Description <span className="optional">Optional</span><textarea value={description} onChange={event => setDescription(event.target.value)} rows={3} maxLength={5000} placeholder="A little context…" /></label>
         {error && <p className="form-error" role="alert">{error}</p>}
         <div className="modal-actions"><div className="modal-danger">{task && (confirmingDelete ? <span className="delete-confirm"><span>Delete this task?</span><button type="button" className="text-button" onClick={() => setConfirmingDelete(false)} disabled={busy}>Keep</button><button type="button" className="text-button danger-button" onClick={remove} disabled={busy}>Delete</button></span> : <button type="button" className="text-button danger-button" onClick={() => setConfirmingDelete(true)} disabled={busy}>Delete</button>)}</div><button type="button" className="button button-quiet" onClick={onClose}>Cancel</button>{task && <button type="button" className="button button-quiet" onClick={changeStatus} disabled={busy}>{status === 'completed' ? 'Reopen' : 'Complete'}</button>}<button className="button button-primary" disabled={busy}>{busy ? 'Saving…' : task ? 'Save changes' : 'Save task'}</button></div>
@@ -108,6 +129,9 @@ function TaskModal({ onClose, onSaved, onDeleted, selectedDate, task }: { onClos
 function Calendar({ onLogout }: { onLogout: () => void }) {
   const [month, setMonth] = useState(monthStart(new Date()))
   const [tasks, setTasks] = useState<Task[]>([])
+  const [lists, setLists] = useState<TaskList[]>([])
+  const [listFilter, setListFilter] = useState('')
+  const [listModalOpen, setListModalOpen] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [modalDate, setModalDate] = useState<Date | null>(null)
@@ -117,19 +141,24 @@ function Calendar({ onLogout }: { onLogout: () => void }) {
   const days = useMemo(() => calendarDays(month), [month])
 
   useEffect(() => {
+    getLists().then(setLists).catch(() => setLists([]))
+  }, [])
+
+  useEffect(() => {
     let active = true
     setLoading(true); setError(''); setTasks([])
     const from = days[0]
     const to = new Date(days[days.length - 1]); to.setDate(to.getDate() + 1)
-    getTasks(from, to).then(result => { if (active) setTasks(result.items) }).catch(caught => { if (active) setError(caught instanceof Error ? caught.message : 'Could not load your calendar.') }).finally(() => active && setLoading(false))
+    getTasks(from, to, listFilter).then(result => { if (active) setTasks(result.items) }).catch(caught => { if (active) setError(caught instanceof Error ? caught.message : 'Could not load your calendar.') }).finally(() => active && setLoading(false))
     return () => { active = false }
-  }, [month, days])
+  }, [month, days, listFilter])
 
   const visibleTasks = query.trim() ? tasks.filter(task => `${task.title} ${task.description}`.toLowerCase().includes(query.toLowerCase())) : tasks
   const tasksFor = (day: Date) => visibleTasks.filter(task => { const date = taskDay(task.dueAt); return date && sameDay(date, day) })
 
-  function saveTask(task: Task) { setTasks(current => current.some(item => item.id === task.id) ? current.map(item => item.id === task.id ? task : item) : [...current, task]) }
+  function saveTask(task: Task) { setTasks(current => { if (listFilter && task.listId !== listFilter) return current.filter(item => item.id !== task.id); return current.some(item => item.id === task.id) ? current.map(item => item.id === task.id ? task : item) : [...current, task] }) }
   function removeTask(id: string) { setTasks(current => current.filter(task => task.id !== id)) }
+  function addList(list: TaskList) { setLists(current => [...current, list]); setListFilter(list.id) }
   function openCreate(day: Date) { setSelectedTask(null); setModalDate(day) }
   function openTask(task: Task) { setSelectedTask(task); setModalDate(taskDay(task.dueAt) ?? new Date()) }
 
@@ -137,22 +166,23 @@ function Calendar({ onLogout }: { onLogout: () => void }) {
     <a className="skip-link" href="#calendar-grid">Skip to calendar</a>
     <aside className="sidebar">
       <div className="sidebar-top"><div className="wordmark"><span className="wordmark-symbol">K</span><span>Kalendar</span></div><div className="sidebar-rule" /></div>
-      <div className="sidebar-content"><p className="eyebrow sidebar-label">Your calendar</p><button className="sidebar-link active"><span className="nav-dot" />Month</button><p className="sidebar-note">A clear view of what’s next.<br />One day at a time.</p></div>
+      <div className="sidebar-content"><p className="eyebrow sidebar-label">Your calendar</p><button className={`sidebar-link ${listFilter ? '' : 'active'}`} onClick={() => setListFilter('')}><span className="nav-dot" />All tasks</button><p className="eyebrow sidebar-label list-label">Lists</p><div className="list-nav">{lists.map(list => <button className={`sidebar-link list-link ${listFilter === list.id ? 'active' : ''}`} key={list.id} onClick={() => setListFilter(list.id)}><span className="list-dot" style={{ backgroundColor: list.color ?? '#80978a' }} />{list.name}</button>)}</div><button className="add-list-button" onClick={() => setListModalOpen(true)}><Icon name="plus" /> New list</button><p className="sidebar-note">A clear view of what’s next.<br />One day at a time.</p></div>
       <div className="sidebar-bottom"><div className="user-chip"><span className="avatar">{(localStorage.getItem('kalendar.username') ?? 'K').slice(0, 1).toUpperCase()}</span><span className="user-name">Your calendar</span><button className="icon-button sidebar-logout" onClick={onLogout} aria-label="Sign out"><Icon name="logout" /></button></div></div>
     </aside>
     <main className="calendar-main">
       <header className="topbar"><div className="topbar-title"><span className="eyebrow">Calendar</span><h1>{monthLabel(month)}</h1></div><div className="topbar-actions"><label className="search-field"><Icon name="search" /><span className="sr-only">Search tasks</span><input name="search" autoComplete="off" value={query} onChange={event => setQuery(event.target.value)} placeholder="Search…" /></label><button className="button button-quiet today-button" onClick={() => setMonth(monthStart(today))}>Today</button><button className="button button-primary add-button" onClick={() => openCreate(today)}><Icon name="plus" /><span>Add task</span></button></div></header>
-      <section className="calendar-toolbar" aria-label="Calendar controls"><div className="month-nav"><button className="icon-button" onClick={() => setMonth(previousMonth(month))} aria-label="Previous month"><Icon name="chevron-left" /></button><button className="icon-button" onClick={() => setMonth(nextMonth(month))} aria-label="Next month"><Icon name="chevron-right" /></button></div><p className="calendar-hint">{tasks.length ? `${tasks.length} task${tasks.length === 1 ? '' : 's'} this view` : 'Your month at a glance'}</p></section>
+      <section className="calendar-toolbar" aria-label="Calendar controls"><div className="month-nav"><button className="icon-button" onClick={() => setMonth(previousMonth(month))} aria-label="Previous month"><Icon name="chevron-left" /></button><button className="icon-button" onClick={() => setMonth(nextMonth(month))} aria-label="Next month"><Icon name="chevron-right" /></button></div><div className="calendar-toolbar-right"><select className="mobile-list-filter" aria-label="Filter by list" value={listFilter} onChange={event => setListFilter(event.target.value)}><option value="">All lists</option>{lists.map(list => <option key={list.id} value={list.id}>{list.name}</option>)}</select><p className="calendar-hint">{tasks.length ? `${tasks.length} task${tasks.length === 1 ? '' : 's'} this view` : 'Your month at a glance'}</p></div></section>
       {error && <div className="state-message error-state" role="alert"><strong>We couldn’t load this month.</strong><span>{error}</span><button className="text-button" onClick={() => setMonth(new Date(month))}>Try again</button></div>}
       <section id="calendar-grid" className={`calendar-grid ${loading ? 'is-loading' : ''}`} role="grid" aria-label={`${monthLabel(month)} calendar`} aria-busy={loading}>
         {['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].map(day => <div className="weekday" key={day}>{day.slice(0, 3)}<span className="weekday-full">{day.slice(3)}</span></div>)}
-        {days.map(day => { const dayTasks = tasksFor(day); const inMonth = day.getMonth() === month.getMonth(); return <div className={`day-cell ${inMonth ? '' : 'outside-month'} ${sameDay(day, today) ? 'today' : ''}`} key={day.toISOString()} role="gridcell" tabIndex={0} onClick={() => openCreate(day)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openCreate(day) } }} aria-label={`${weekdayLabel(day)}, ${dayLabel(day)}${dayTasks.length ? `, ${dayTasks.length} tasks` : ''}`}><span className="day-number">{dayLabel(day)}</span><span className="day-tasks">{dayTasks.slice(0, 4).map(task => <button className={`task-pill priority-${task.priority} ${task.status === 'completed' ? 'is-complete' : ''}`} title={task.title} key={task.id} onClick={event => { event.stopPropagation(); openTask(task) }}><span className="task-mark" />{task.title}</button>)}{dayTasks.length > 4 && <span className="more-tasks">+{dayTasks.length - 4} more</span>}</span></div> })}
+        {days.map(day => { const dayTasks = tasksFor(day); const inMonth = day.getMonth() === month.getMonth(); return <div className={`day-cell ${inMonth ? '' : 'outside-month'} ${sameDay(day, today) ? 'today' : ''}`} key={day.toISOString()} role="gridcell" tabIndex={0} onClick={() => openCreate(day)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openCreate(day) } }} aria-label={`${weekdayLabel(day)}, ${dayLabel(day)}${dayTasks.length ? `, ${dayTasks.length} tasks` : ''}`}><span className="day-number">{dayLabel(day)}</span><span className="day-tasks">{dayTasks.slice(0, 4).map(task => <button className={`task-pill priority-${task.priority} ${task.status === 'completed' ? 'is-complete' : ''}`} style={{ borderLeftColor: lists.find(list => list.id === task.listId)?.color ?? undefined }} title={task.title} key={task.id} onClick={event => { event.stopPropagation(); openTask(task) }}><span className="task-mark" />{task.title}</button>)}{dayTasks.length > 4 && <span className="more-tasks">+{dayTasks.length - 4} more</span>}</span></div> })}
       </section>
       {loading && <div className="loading-line" aria-live="polite">Loading your calendar…</div>}
       {!loading && !error && query.trim() && visibleTasks.length === 0 && <div className="state-message empty-state"><strong>No tasks match “{query}”.</strong><span>Try a different word or clear your search.</span><button className="text-button" onClick={() => setQuery('')}>Clear search</button></div>}
       {!loading && !error && !query.trim() && tasks.length === 0 && <div className="state-message empty-state"><strong>This month is still open.</strong><span>Add a task to give the days ahead a shape.</span><button className="text-button" onClick={() => openCreate(monthStart(month))}>Add your first task</button></div>}
     </main>
-    {modalDate && <TaskModal task={selectedTask ?? undefined} selectedDate={modalDate} onClose={() => { setModalDate(null); setSelectedTask(null) }} onSaved={saveTask} onDeleted={removeTask} />}
+    {modalDate && <TaskModal task={selectedTask ?? undefined} lists={lists} selectedDate={modalDate} onClose={() => { setModalDate(null); setSelectedTask(null) }} onSaved={saveTask} onDeleted={removeTask} />}
+    {listModalOpen && <ListModal onClose={() => setListModalOpen(false)} onCreated={addList} />}
   </div>
 }
 

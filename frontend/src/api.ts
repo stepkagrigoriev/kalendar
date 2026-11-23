@@ -15,6 +15,7 @@ export type Task = {
 }
 
 export type TaskQueryResponse = { items: Task[]; total: number }
+export type TaskList = { id: string; name: string; color: string | null; createdAt: string; updatedAt: string }
 export type Credentials = { username: string; password: string }
 
 const tokenKey = 'kalendar.accessToken'
@@ -49,16 +50,23 @@ export async function authenticate(path: '/api/auth/login' | '/api/auth/register
   return result
 }
 
-export function getTasks(from: Date, to: Date) {
+export function getTasks(from: Date, to: Date, listId?: string) {
   const query = new URLSearchParams({ from: from.toISOString(), to: to.toISOString(), limit: '100', sort: 'dueAt' })
+  if (listId) query.set('listId', listId)
   return request<TaskQueryResponse>(`/api/tasks?${query}`)
 }
 
-export function createTask(input: { title: string; dueAt: string | null; priority: Priority; description?: string }) {
+export function getLists() { return request<TaskList[]>('/api/lists') }
+
+export function createList(input: { name: string; color: string }) {
+  return request<TaskList>('/api/lists', { method: 'POST', body: JSON.stringify(input) })
+}
+
+export function createTask(input: { title: string; dueAt: string | null; priority: Priority; description?: string; listId?: string | null }) {
   return request<Task>('/api/tasks', { method: 'POST', body: JSON.stringify(input) })
 }
 
-export function updateTask(id: string, input: { title: string; dueAt: string | null; priority: Priority; description: string }) {
+export function updateTask(id: string, input: { title: string; dueAt: string | null; priority: Priority; description: string; listId: string | null }) {
   return request<Task>(`/api/tasks/${id}`, { method: 'PATCH', body: JSON.stringify(input) })
 }
 
